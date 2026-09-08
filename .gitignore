@@ -1,0 +1,10 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+
+# Local database
+data/*.db
+
+# Generated output
+output/

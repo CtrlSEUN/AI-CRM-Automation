@@ -1,0 +1,10 @@
+name,email,phone,country,company,message
+John Smith,john@gmail.com,08031234567,NG,ABC Furniture,Interested in office chairs
+ john smith ,JOHN@gmail.com,08031234567,NG,ABC Furniture Ltd,Need 50 chairs
+Jane Doe,jane@gmail.com,08123456789,NG,XYZ Technologies,Interested in laptops
+Michael Johnson,michael@gmail.com,08012345678,NG,Johnson Tech,Need 10 laptops
+Emma Stone,emma@@gmail.com,12345678901,NG,Stone Company,Need furniture
+,missingname@gmail.com,08098765432,NG,Example Ltd,Need chairs
+Femi Johnson,femi@gmail.com,08144814280,NG,Femi Enterprises,Interested in automation
+John Adewale,john.adewale@gmail.com,08055555555,NG,ABC Technologies,Interested in software
+Jon Adewale,john.adewale@outlook.com,08066666666,NG,ABC Technology,Interested in software

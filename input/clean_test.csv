@@ -1,0 +1,4 @@
+name,email,phone,country,company,message
+Alice Brown,alice@example.com,08011111111,NG,Alpha Ltd,Interested in software
+Bob Green,bob@example.com,08022222222,NG,Beta Ltd,Interested in automation
+Charlie White,charlie@example.com,08033333333,NG,Gamma Ltd,Interested in CRM
