@@ -689,6 +689,34 @@ def get_import_batches():
 
 
 # ========================================
+# GET LEADS BY IMPORT BATCH
+# ========================================
+
+def get_leads_by_import_batch(batch_id):
+    """Retrieve all leads imported through a specific batch."""
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT *
+            FROM leads
+            WHERE import_batch_id = ?
+            ORDER BY id ASC
+        """, (
+            batch_id,
+        ))
+
+        return cursor.fetchall()
+
+    finally:
+
+        connection.close()
+
+
+# ========================================
 # UPDATE LEAD
 # ========================================
 

@@ -26,6 +26,8 @@ from app.database import (
     delete_lead,
     create_lead_activity,
     get_lead_activities,
+    get_import_batches,
+    get_leads_by_import_batch,
 )
 
 from app.lead_cleaner import clean_lead
@@ -67,7 +69,8 @@ def show_menu():
     print("9. Delete lead")
     print("10. View dashboard")
     print("11. View lead activity history")
-    print("12. Exit")
+    print("12. View import batch history")
+    print("13. Exit")
     print("========================================")
 
 
@@ -298,6 +301,164 @@ def show_lead_activities(lead_id):
         handle_error(
             error,
             "Retrieving lead activity history"
+        )
+
+
+# ========================================
+# DISPLAY IMPORT BATCHES
+# ========================================
+
+def show_import_batches():
+    """Display all recorded CRM import batches."""
+
+    try:
+
+        batches = get_import_batches()
+
+        print("\n========================================")
+        print("          IMPORT BATCH HISTORY")
+        print("========================================")
+
+        if not batches:
+
+            print("No import batches found.")
+
+            return
+
+        for batch in batches:
+
+            print(f"\nBatch ID: {batch[0]}")
+            print(f"Batch Key: {batch[1]}")
+            print(f"Client: {batch[2]}")
+            print(f"Dataset: {batch[3]}")
+            print(f"Source File: {batch[4]}")
+            print(f"Imported Records: {batch[5]}")
+            print(f"Status: {batch[6]}")
+            print(f"Created: {batch[7]}")
+
+            print("----------------------------------------")
+
+        batch_id = input(
+            "\nEnter a Batch ID to view its leads, "
+            "or press Enter to return: "
+        ).strip()
+
+        if not batch_id:
+
+            return
+
+        if not batch_id.isdigit():
+
+            print("Invalid Batch ID.")
+
+            return
+
+        show_import_batch_details(
+            int(batch_id)
+        )
+
+    except Exception as error:
+
+        handle_error(
+            error,
+            "Displaying import batch history"
+        )
+
+
+# ========================================
+# DISPLAY IMPORT BATCH DETAILS
+# ========================================
+
+def show_import_batch_details(batch_id):
+    """Display details and leads belonging to one batch."""
+
+    try:
+
+        batches = get_import_batches()
+
+        selected_batch = None
+
+        for batch in batches:
+
+            if batch[0] == batch_id:
+
+                selected_batch = batch
+
+                break
+
+        print("\n========================================")
+        print("          IMPORT BATCH DETAILS")
+        print("========================================")
+
+        if not selected_batch:
+
+            print("Import batch not found.")
+
+            return
+
+        print(
+            f"Batch ID: {selected_batch[0]}"
+        )
+
+        print(
+            f"Batch Key: {selected_batch[1]}"
+        )
+
+        print(
+            f"Client: {selected_batch[2]}"
+        )
+
+        print(
+            f"Dataset: {selected_batch[3]}"
+        )
+
+        print(
+            f"Source File: {selected_batch[4]}"
+        )
+
+        print(
+            f"Imported Records: {selected_batch[5]}"
+        )
+
+        print(
+            f"Status: {selected_batch[6]}"
+        )
+
+        print(
+            f"Created: {selected_batch[7]}"
+        )
+
+        print("----------------------------------------")
+
+        leads = get_leads_by_import_batch(
+            batch_id
+        )
+
+        print("\nLEADS IN THIS BATCH")
+
+        if not leads:
+
+            print(
+                "No leads found for this batch."
+            )
+
+            return
+
+        for lead in leads:
+
+            display_lead(
+                lead
+            )
+
+        print(
+            f"Total leads in batch: {len(leads)}"
+        )
+
+    except Exception as error:
+
+        handle_error(
+            error,
+            "Displaying import batch details"
         )
 
 
@@ -1191,10 +1352,18 @@ while True:
             )
 
     # ==================================================
-    # 12. EXIT
+    # 12. VIEW IMPORT BATCH HISTORY
     # ==================================================
 
     elif choice == "12":
+
+        show_import_batches()
+
+    # ==================================================
+    # 13. EXIT
+    # ==================================================
+
+    elif choice == "13":
 
         print(
             "\nGoodbye!"
@@ -1210,5 +1379,5 @@ while True:
 
         print(
             "\nInvalid option. "
-            "Please choose 1-12."
+            "Please choose 1-13."
         )
