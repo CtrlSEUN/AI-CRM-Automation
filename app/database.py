@@ -717,6 +717,131 @@ def get_leads_by_import_batch(batch_id):
 
 
 # ========================================
+# GET IMPORT BATCH STATISTICS
+# ========================================
+
+def get_import_batch_stats(batch_id):
+    """
+    Calculate lead statistics for a specific
+    import batch.
+
+    Returns the total number of leads and
+    the number of leads in each CRM status.
+    Also calculates the batch conversion rate.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        # ------------------------------------
+        # CHECK THAT BATCH EXISTS
+        # ------------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM import_batches
+            WHERE id = ?
+        """, (
+            batch_id,
+        ))
+
+        batch = cursor.fetchone()
+
+        if not batch:
+
+            return None
+
+        # ------------------------------------
+        # GET TOTAL LEADS
+        # ------------------------------------
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM leads
+            WHERE import_batch_id = ?
+        """, (
+            batch_id,
+        ))
+
+        total_leads = cursor.fetchone()[0]
+
+        # ------------------------------------
+        # GET LEADS BY STATUS
+        # ------------------------------------
+
+        cursor.execute("""
+            SELECT
+                status,
+                COUNT(*)
+            FROM leads
+            WHERE import_batch_id = ?
+            GROUP BY status
+        """, (
+            batch_id,
+        ))
+
+        status_counts = dict(
+            cursor.fetchall()
+        )
+
+        # ------------------------------------
+        # ENSURE ALL STANDARD STATUSES EXIST
+        # ------------------------------------
+
+        statuses = [
+            "NEW",
+            "CONTACTED",
+            "QUALIFIED",
+            "CONVERTED",
+            "LOST",
+        ]
+
+        for status in statuses:
+
+            status_counts.setdefault(
+                status,
+                0
+            )
+
+        # ------------------------------------
+        # CONVERTED LEADS
+        # ------------------------------------
+
+        converted_leads = status_counts[
+            "CONVERTED"
+        ]
+
+        # ------------------------------------
+        # CONVERSION RATE
+        # ------------------------------------
+
+        if total_leads > 0:
+
+            conversion_rate = (
+                converted_leads
+                / total_leads
+            ) * 100
+
+        else:
+
+            conversion_rate = 0
+
+        return {
+            "batch_id": batch_id,
+            "total_leads": total_leads,
+            "status_counts": status_counts,
+            "converted_leads": converted_leads,
+            "conversion_rate": conversion_rate,
+        }
+
+    finally:
+
+        connection.close()
+
+
+# ========================================
 # UPDATE LEAD
 # ========================================
 
