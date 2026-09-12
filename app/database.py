@@ -842,6 +842,158 @@ def get_import_batch_stats(batch_id):
 
 
 # ========================================
+# GET ALL IMPORT BATCH STATISTICS
+# ========================================
+
+def get_all_import_batch_stats():
+    """
+    Calculate performance statistics for all
+    import batches.
+
+    Returns one statistics record for every
+    import batch in the database.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        # ------------------------------------
+        # GET ALL IMPORT BATCHES
+        # ------------------------------------
+
+        cursor.execute("""
+            SELECT
+                id,
+                batch_key,
+                client_name,
+                dataset_name,
+                source_file,
+                imported_count,
+                status,
+                created_at
+            FROM import_batches
+            ORDER BY id DESC
+        """)
+
+        batches = cursor.fetchall()
+
+        results = []
+
+        # ------------------------------------
+        # CALCULATE STATISTICS FOR EACH BATCH
+        # ------------------------------------
+
+        for batch in batches:
+
+            (
+                batch_id,
+                batch_key,
+                client_name,
+                dataset_name,
+                source_file,
+                imported_count,
+                batch_status,
+                created_at
+            ) = batch
+
+            # --------------------------------
+            # GET STATUS COUNTS
+            # --------------------------------
+
+            cursor.execute("""
+                SELECT
+                    status,
+                    COUNT(*)
+                FROM leads
+                WHERE import_batch_id = ?
+                GROUP BY status
+            """, (
+                batch_id,
+            ))
+
+            status_counts = dict(
+                cursor.fetchall()
+            )
+
+            # --------------------------------
+            # ENSURE ALL STANDARD STATUSES EXIST
+            # --------------------------------
+
+            statuses = [
+                "NEW",
+                "CONTACTED",
+                "QUALIFIED",
+                "CONVERTED",
+                "LOST",
+            ]
+
+            for status in statuses:
+
+                status_counts.setdefault(
+                    status,
+                    0
+                )
+
+            # --------------------------------
+            # TOTAL LEADS
+            # --------------------------------
+
+            total_leads = sum(
+                status_counts.values()
+            )
+
+            # --------------------------------
+            # CONVERTED LEADS
+            # --------------------------------
+
+            converted_leads = status_counts[
+                "CONVERTED"
+            ]
+
+            # --------------------------------
+            # CONVERSION RATE
+            # --------------------------------
+
+            if total_leads > 0:
+
+                conversion_rate = (
+                    converted_leads
+                    / total_leads
+                ) * 100
+
+            else:
+
+                conversion_rate = 0
+
+            # --------------------------------
+            # STORE BATCH STATISTICS
+            # --------------------------------
+
+            results.append({
+                "batch_id": batch_id,
+                "batch_key": batch_key,
+                "client_name": client_name,
+                "dataset_name": dataset_name,
+                "source_file": source_file,
+                "imported_count": imported_count,
+                "status": batch_status,
+                "created_at": created_at,
+                "total_leads": total_leads,
+                "status_counts": status_counts,
+                "converted_leads": converted_leads,
+                "conversion_rate": conversion_rate,
+            })
+
+        return results
+
+    finally:
+
+        connection.close()
+
+
+# ========================================
 # UPDATE LEAD
 # ========================================
 
