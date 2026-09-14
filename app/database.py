@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+from app.duplicate_detector import detect_duplicate
+
 
 # ========================================
 # DATABASE CONFIGURATION
@@ -360,9 +362,17 @@ def import_clean_leads(
     1. Reusing the same batch key.
     2. Importing a lead whose email already exists
        in the CRM.
+    3. Importing a lead that strongly matches an
+       existing lead by identity signals such as
+       name and company.
 
-    Existing leads are skipped rather than deleted,
-    merged, or overwritten.
+    Exact email duplicates are skipped.
+
+    Strong identity matches are imported but flagged
+    for human review.
+
+    The system never automatically deletes or merges
+    leads.
 
     The entire batch is handled as one transaction.
     """
@@ -373,6 +383,7 @@ def import_clean_leads(
     imported_count = 0
     skipped_count = 0
     existing_duplicate_count = 0
+    possible_duplicate_count = 0
 
     try:
 
@@ -431,6 +442,7 @@ def import_clean_leads(
                 "imported": 0,
                 "skipped": 0,
                 "existing_duplicates": 0,
+                "possible_duplicates": 0,
                 "already_imported": False,
                 "batch_id": None,
             }
@@ -484,6 +496,7 @@ def import_clean_leads(
                     "imported": 0,
                     "skipped": len(clean_records),
                     "existing_duplicates": 0,
+                    "possible_duplicates": 0,
                     "already_imported": True,
                     "batch_id": batch_id,
                 }
@@ -516,6 +529,23 @@ def import_clean_leads(
         else:
 
             batch_id = None
+
+        # ------------------------------------
+        # LOAD EXISTING CRM LEADS
+        # ------------------------------------
+
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                email,
+                phone,
+                company,
+                status
+            FROM leads
+        """)
+
+        existing_leads = cursor.fetchall()
 
         # ------------------------------------
         # IMPORT EACH CLEAN RECORD
@@ -555,7 +585,7 @@ def import_clean_leads(
                 )
 
             # --------------------------------
-            # CHECK EXISTING CRM LEAD
+            # CHECK EXACT EMAIL DUPLICATE
             # --------------------------------
 
             normalized_email = email.lower()
@@ -570,14 +600,77 @@ def import_clean_leads(
                 normalized_email,
             ))
 
-            existing_lead = cursor.fetchone()
+            existing_email_lead = cursor.fetchone()
 
-            if existing_lead:
+            if existing_email_lead:
 
                 skipped_count += 1
                 existing_duplicate_count += 1
 
                 continue
+
+            # --------------------------------
+            # CHECK IDENTITY-BASED DUPLICATES
+            # --------------------------------
+
+            incoming_lead = {
+                "name": name,
+                "email": email,
+                "phone": phone,
+                "company": company,
+            }
+
+            duplicate_match = None
+
+            for existing_lead in existing_leads:
+
+                existing_record = {
+                    "name": existing_lead[1],
+                    "email": existing_lead[2],
+                    "phone": existing_lead[3],
+                    "company": existing_lead[4],
+                }
+
+                duplicate_result = detect_duplicate(
+                    incoming_lead,
+                    existing_record
+                )
+
+                if duplicate_result["status"] == "DUPLICATE":
+
+                    duplicate_match = {
+                        "lead_id": existing_lead[0],
+                        "confidence": duplicate_result[
+                            "confidence"
+                        ],
+                        "reason": duplicate_result[
+                            "reason"
+                        ],
+                    }
+
+                    break
+
+            # --------------------------------
+            # DETERMINE DUPLICATE FLAG
+            # --------------------------------
+
+            duplicate_flag = 0
+            duplicate_reason = None
+
+            if duplicate_match:
+
+                duplicate_flag = 1
+
+                duplicate_reason = (
+                    "Possible existing lead "
+                    f"(Lead ID "
+                    f"{duplicate_match['lead_id']}): "
+                    f"{duplicate_match['reason']} "
+                    f"Confidence: "
+                    f"{duplicate_match['confidence']}"
+                )
+
+                possible_duplicate_count += 1
 
             # --------------------------------
             # INSERT LEAD
@@ -616,8 +709,8 @@ def import_clean_leads(
                 company,
                 message,
 
-                0,
-                None,
+                duplicate_flag,
+                duplicate_reason,
                 None,
                 None,
                 None,
@@ -632,6 +725,23 @@ def import_clean_leads(
             ))
 
             lead_id = cursor.lastrowid
+
+            # --------------------------------
+            # ADD NEW LEAD TO COMPARISON LIST
+            # --------------------------------
+            #
+            # This prevents later records in the
+            # same import batch from bypassing the
+            # identity-based duplicate check.
+
+            existing_leads.append((
+                lead_id,
+                name,
+                email,
+                phone,
+                company,
+                "NEW",
+            ))
 
             # --------------------------------
             # LOG CREATION ACTIVITY
@@ -649,6 +759,25 @@ def import_clean_leads(
                 "CREATED",
                 "Lead was imported from the bulk CRM cleanup pipeline.",
             ))
+
+            # --------------------------------
+            # LOG DUPLICATE REVIEW FLAG
+            # --------------------------------
+
+            if duplicate_match:
+
+                cursor.execute("""
+                    INSERT INTO lead_activities (
+                        lead_id,
+                        activity_type,
+                        description
+                    )
+                    VALUES (?, ?, ?)
+                """, (
+                    lead_id,
+                    "DUPLICATE_REVIEW",
+                    duplicate_reason,
+                ))
 
             imported_count += 1
 
@@ -679,6 +808,7 @@ def import_clean_leads(
             "imported": imported_count,
             "skipped": skipped_count,
             "existing_duplicates": existing_duplicate_count,
+            "possible_duplicates": possible_duplicate_count,
             "already_imported": False,
             "batch_id": batch_id,
         }
