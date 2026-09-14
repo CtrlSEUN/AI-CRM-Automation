@@ -29,6 +29,50 @@ def normalize_for_comparison(value):
     )
 
 
+def normalize_company(value):
+    """
+    Normalize company names for duplicate comparison.
+
+    Removes common business suffixes so that:
+
+        ABC Furniture
+        ABC Furniture Ltd
+        ABC Furniture Limited
+
+    can be treated as the same underlying company.
+    """
+
+    value = normalize_for_comparison(value)
+
+    if not value:
+        return ""
+
+    suffixes = [
+        "limited",
+        "ltd",
+        "llc",
+        "incorporated",
+        "inc",
+        "corporation",
+        "corp",
+        "plc",
+        "company",
+        "co",
+    ]
+
+    for suffix in suffixes:
+
+        if value.endswith(suffix):
+
+            value = value[
+                :-len(suffix)
+            ]
+
+            break
+
+    return value
+
+
 # ============================================================
 # FUZZY SIMILARITY
 # ============================================================
@@ -46,7 +90,31 @@ def similarity_score(value1, value2):
     if not value1 or not value2:
         return 0
 
-    return round(ratio(value1, value2), 2)
+    return round(
+        ratio(value1, value2),
+        2
+    )
+
+
+def company_similarity_score(
+    company1,
+    company2
+):
+    """
+    Calculate fuzzy similarity between two company names
+    using company-specific normalization.
+    """
+
+    company1 = normalize_company(company1)
+    company2 = normalize_company(company2)
+
+    if not company1 or not company2:
+        return 0
+
+    return round(
+        ratio(company1, company2),
+        2
+    )
 
 
 # ============================================================
@@ -70,7 +138,7 @@ def compare_records(new_lead, existing_lead):
             existing_lead.get("name")
         ),
 
-        "company_score": similarity_score(
+        "company_score": company_similarity_score(
             new_lead.get("company"),
             existing_lead.get("company")
         ),
@@ -104,7 +172,7 @@ def calculate_confidence(scores):
 
     LOW:
         Weak similarity that should not be treated as a
-        duplicate by itself.
+        duplicate.
 
     UNIQUE:
         Not enough evidence of duplication.
@@ -115,57 +183,100 @@ def calculate_confidence(scores):
     email = scores["email_score"]
     phone = scores["phone_score"]
 
+
     # --------------------------------------------------------
     # STRONG IDENTIFIER MATCH
     # --------------------------------------------------------
 
     if email >= 98:
-        return "HIGH", "Very strong email match"
+
+        return (
+            "HIGH",
+            "Very strong email match"
+        )
+
 
     if phone >= 98:
-        return "HIGH", "Very strong phone match"
+
+        return (
+            "HIGH",
+            "Very strong phone match"
+        )
+
 
     # --------------------------------------------------------
     # STRONG NAME + COMPANY MATCH
+    #
+    # This is the important Day 26 fallback.
     # --------------------------------------------------------
 
     if name >= 90 and company >= 90:
-        return "HIGH", "Strong name and company match"
+
+        return (
+            "HIGH",
+            "Strong name and company match"
+        )
+
 
     # --------------------------------------------------------
-    # FUZZY NAME + COMPANY
+    # MODERATE NAME + COMPANY MATCH
     # --------------------------------------------------------
 
     if name >= 85 and company >= 80:
-        return "MEDIUM", "Similar name and company"
+
+        return (
+            "MEDIUM",
+            "Similar name and company"
+        )
+
 
     # --------------------------------------------------------
     # NAME + EMAIL
     # --------------------------------------------------------
 
     if name >= 85 and email >= 85:
-        return "MEDIUM", "Similar name and email"
+
+        return (
+            "MEDIUM",
+            "Similar name and email"
+        )
+
 
     # --------------------------------------------------------
     # NAME + PHONE
     # --------------------------------------------------------
 
     if name >= 85 and phone >= 85:
-        return "MEDIUM", "Similar name and phone"
+
+        return (
+            "MEDIUM",
+            "Similar name and phone"
+        )
+
 
     # --------------------------------------------------------
     # COMPANY + EMAIL
     # --------------------------------------------------------
 
     if company >= 85 and email >= 85:
-        return "MEDIUM", "Similar company and email"
+
+        return (
+            "MEDIUM",
+            "Similar company and email"
+        )
+
 
     # --------------------------------------------------------
     # COMPANY + PHONE
     # --------------------------------------------------------
 
     if company >= 85 and phone >= 85:
-        return "MEDIUM", "Similar company and phone"
+
+        return (
+            "MEDIUM",
+            "Similar company and phone"
+        )
+
 
     # --------------------------------------------------------
     # SAME NAME ONLY
@@ -175,27 +286,43 @@ def calculate_confidence(scores):
     # --------------------------------------------------------
 
     if name >= 95:
-        return "UNIQUE", "Same or very similar name only - insufficient evidence"
+
+        return (
+            "UNIQUE",
+            "Same or very similar name only - insufficient evidence"
+        )
+
 
     # --------------------------------------------------------
     # WEAK SIMILARITY
     # --------------------------------------------------------
 
     if name >= 80 or company >= 85:
-        return "LOW", "Weak similarity - insufficient evidence"
+
+        return (
+            "LOW",
+            "Weak similarity - insufficient evidence"
+        )
+
 
     # --------------------------------------------------------
     # NO SIGNIFICANT MATCH
     # --------------------------------------------------------
 
-    return "UNIQUE", "No significant duplicate evidence"
+    return (
+        "UNIQUE",
+        "No significant duplicate evidence"
+    )
 
 
 # ============================================================
 # DUPLICATE DETECTION
 # ============================================================
 
-def detect_duplicate(new_lead, existing_lead):
+def detect_duplicate(
+    new_lead,
+    existing_lead
+):
     """
     Compare two leads and determine whether they are:
 
@@ -209,7 +336,10 @@ def detect_duplicate(new_lead, existing_lead):
         existing_lead
     )
 
-    confidence, reason = calculate_confidence(scores)
+    confidence, reason = calculate_confidence(
+        scores
+    )
+
 
     # --------------------------------------------------------
     # STATUS CLASSIFICATION
@@ -227,6 +357,7 @@ def detect_duplicate(new_lead, existing_lead):
 
         status = "UNIQUE"
 
+
     return {
         "status": status,
         "confidence": confidence,
@@ -239,7 +370,10 @@ def detect_duplicate(new_lead, existing_lead):
 # BACKWARD COMPATIBILITY
 # ============================================================
 
-def is_potential_duplicate(new_lead, existing_lead):
+def is_potential_duplicate(
+    new_lead,
+    existing_lead
+):
     """
     Backward-compatible duplicate check.
 
@@ -258,9 +392,11 @@ def is_potential_duplicate(new_lead, existing_lead):
 
         return True, result["reason"]
 
+
     if result["status"] == "POSSIBLE DUPLICATE":
 
         return True, result["reason"]
+
 
     return False, result["reason"]
 
@@ -272,7 +408,7 @@ def is_potential_duplicate(new_lead, existing_lead):
 if __name__ == "__main__":
 
     print("=" * 60)
-    print("INTELLIGENT DUPLICATE DETECTOR TESTS")
+    print("DAY 26 - SMART DUPLICATE DETECTOR TESTS")
     print("=" * 60)
 
 
@@ -352,7 +488,7 @@ if __name__ == "__main__":
 
 
     # ========================================================
-    # TEST 4: FUZZY NAME MATCH
+    # TEST 4: FUZZY NAME + COMPANY
     # ========================================================
 
     new_lead = {
@@ -362,7 +498,7 @@ if __name__ == "__main__":
         "company": "ABC Furniture",
     }
 
-    print("\nTEST 4: FUZZY NAME MATCH")
+    print("\nTEST 4: FUZZY NAME + COMPANY")
 
     result = detect_duplicate(
         new_lead,
@@ -373,7 +509,7 @@ if __name__ == "__main__":
 
 
     # ========================================================
-    # TEST 5: FUZZY COMPANY MATCH
+    # TEST 5: COMPANY SUFFIX
     # ========================================================
 
     new_lead = {
@@ -383,7 +519,7 @@ if __name__ == "__main__":
         "company": "ABC Furniture Limited",
     }
 
-    print("\nTEST 5: FUZZY COMPANY MATCH")
+    print("\nTEST 5: COMPANY SUFFIX")
 
     result = detect_duplicate(
         new_lead,
@@ -435,6 +571,35 @@ if __name__ == "__main__":
     print(result)
 
 
+    # ========================================================
+    # TEST 8: PERSONAL EMAIL + SAME PERSON/COMPANY
+    #
+    # Simulates the exact gap mentioned on X.
+    # ========================================================
+
+    new_lead = {
+        "name": "John Smith",
+        "email": "johnsmith@gmail.com",
+        "phone": "",
+        "company": "ABC Furniture",
+    }
+
+    print(
+        "\nTEST 8: DIFFERENT EMAIL + SAME NAME + COMPANY"
+    )
+
+    result = detect_duplicate(
+        new_lead,
+        existing_lead
+    )
+
+    print(result)
+
+
+    # ========================================================
+    # FINAL
+    # ========================================================
+
     print("\n" + "=" * 60)
-    print("TESTS COMPLETE")
+    print("DAY 26 DUPLICATE DETECTOR TESTS COMPLETE")
     print("=" * 60)
