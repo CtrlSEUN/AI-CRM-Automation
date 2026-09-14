@@ -295,6 +295,53 @@ def insert_lead(lead):
 
 
 # ========================================
+# FIND EXISTING LEAD BY EMAIL
+# ========================================
+
+def get_lead_by_email(email):
+    """
+    Find an existing CRM lead using email.
+
+    Email matching is case-insensitive and ignores
+    surrounding whitespace.
+    """
+
+    if not email:
+
+        return None
+
+    normalized_email = str(
+        email
+    ).strip().lower()
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                email,
+                phone,
+                company,
+                status
+            FROM leads
+            WHERE LOWER(TRIM(email)) = ?
+            LIMIT 1
+        """, (
+            normalized_email,
+        ))
+
+        return cursor.fetchone()
+
+    finally:
+
+        connection.close()
+
+
+# ========================================
 # IMPORT CLEAN LEADS
 # ========================================
 
@@ -309,12 +356,13 @@ def import_clean_leads(
     Import CLEAN and UNIQUE records from the
     bulk cleanup pipeline into the CRM database.
 
-    Each bulk import can be associated with an
-    import batch to prevent the same batch from
-    being imported more than once.
+    Prevents duplicate imports caused by:
+    1. Reusing the same batch key.
+    2. Importing a lead whose email already exists
+       in the CRM.
 
-    Imported leads are created with status NEW
-    and automatically receive a CREATED activity.
+    Existing leads are skipped rather than deleted,
+    merged, or overwritten.
 
     The entire batch is handled as one transaction.
     """
@@ -323,6 +371,8 @@ def import_clean_leads(
     cursor = connection.cursor()
 
     imported_count = 0
+    skipped_count = 0
+    existing_duplicate_count = 0
 
     try:
 
@@ -380,6 +430,7 @@ def import_clean_leads(
             return {
                 "imported": 0,
                 "skipped": 0,
+                "existing_duplicates": 0,
                 "already_imported": False,
                 "batch_id": None,
             }
@@ -432,6 +483,7 @@ def import_clean_leads(
                 return {
                     "imported": 0,
                     "skipped": len(clean_records),
+                    "existing_duplicates": 0,
                     "already_imported": True,
                     "batch_id": batch_id,
                 }
@@ -501,6 +553,31 @@ def import_clean_leads(
                     "A CLEAN record is missing "
                     "a required name or email."
                 )
+
+            # --------------------------------
+            # CHECK EXISTING CRM LEAD
+            # --------------------------------
+
+            normalized_email = email.lower()
+
+            cursor.execute("""
+                SELECT
+                    id
+                FROM leads
+                WHERE LOWER(TRIM(email)) = ?
+                LIMIT 1
+            """, (
+                normalized_email,
+            ))
+
+            existing_lead = cursor.fetchone()
+
+            if existing_lead:
+
+                skipped_count += 1
+                existing_duplicate_count += 1
+
+                continue
 
             # --------------------------------
             # INSERT LEAD
@@ -600,7 +677,8 @@ def import_clean_leads(
 
         return {
             "imported": imported_count,
-            "skipped": 0,
+            "skipped": skipped_count,
+            "existing_duplicates": existing_duplicate_count,
             "already_imported": False,
             "batch_id": batch_id,
         }
