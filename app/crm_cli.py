@@ -28,6 +28,8 @@ from app.database import (
     get_lead_activities,
     get_import_batches,
     get_leads_by_import_batch,
+    get_usage_analytics,
+    track_usage,
 )
 
 from app.lead_cleaner import clean_lead
@@ -46,6 +48,43 @@ ALLOWED_STATUSES = [
     "CONVERTED",
     "LOST",
 ]
+
+
+# ========================================
+# USAGE TRACKING CONTEXT
+# ========================================
+
+CLIENT_ID = "CLIENT_A"
+USER_ID = "USER_001"
+
+
+def record_usage(
+    event_type,
+    tool_used="CRM CLI",
+    records_affected=0,
+    metadata=None
+):
+    """
+    Record CRM usage without allowing analytics
+    failures to interrupt normal CRM operations.
+    """
+
+    try:
+
+        track_usage(
+            client_id=CLIENT_ID,
+            user_id=USER_ID,
+            event_type=event_type,
+            tool_used=tool_used,
+            records_affected=records_affected,
+            metadata=metadata
+        )
+
+    except Exception as error:
+
+        print(
+            f"\nWarning: Usage tracking failed: {error}"
+        )
 
 
 # ========================================
@@ -70,7 +109,8 @@ def show_menu():
     print("10. View dashboard")
     print("11. View lead activity history")
     print("12. View import batch history")
-    print("13. Exit")
+    print("13. View usage analytics")
+    print("14. Exit")
     print("========================================")
 
 
@@ -191,6 +231,10 @@ def show_dashboard():
 
         stats = get_dashboard_stats()
 
+        record_usage(
+            event_type="DASHBOARD_VIEWED"
+        )
+
         print("\n========================================")
         print("             CRM DASHBOARD")
         print("========================================")
@@ -246,6 +290,163 @@ def show_dashboard():
 
 
 # ========================================
+# SHOW USAGE ANALYTICS
+# ========================================
+
+def show_usage_analytics():
+    """Display internal CRM usage analytics."""
+
+    try:
+
+        analytics = get_usage_analytics()
+
+        record_usage(
+            event_type="USAGE_ANALYTICS_VIEWED"
+        )
+
+        print("\n========================================")
+        print("          USAGE ANALYTICS")
+        print("========================================")
+
+        print(
+            f"Total Events: "
+            f"{analytics['total_events']}"
+        )
+
+        print(
+            f"Total Records Affected: "
+            f"{analytics['total_records_affected']}"
+        )
+
+        print(
+            f"Leads Created: "
+            f"{analytics['leads_created']}"
+        )
+
+        print(
+            f"Unique Users: "
+            f"{analytics['unique_users']}"
+        )
+
+        print(
+            f"Unique Clients: "
+            f"{analytics['unique_clients']}"
+        )
+
+        print(
+            f"Active Users (24h): "
+            f"{analytics['active_users_24h']}"
+        )
+
+        print(
+            f"Active Clients (24h): "
+            f"{analytics['active_clients_24h']}"
+        )
+
+        print("\nEVENTS BY TYPE")
+
+        if analytics["events_by_type"]:
+
+            for event_type, count in (
+                analytics["events_by_type"].items()
+            ):
+
+                print(
+                    f"{event_type}: {count}"
+                )
+
+        else:
+
+            print("No usage events recorded.")
+
+        print("\nEVENTS BY TOOL")
+
+        if analytics["events_by_tool"]:
+
+            for tool, count in (
+                analytics["events_by_tool"].items()
+            ):
+
+                print(
+                    f"{tool}: {count}"
+                )
+
+        else:
+
+            print("No tool usage recorded.")
+
+        print("\nRECORDS AFFECTED BY TOOL")
+
+        if analytics["records_by_tool"]:
+
+            for tool, count in (
+                analytics["records_by_tool"].items()
+            ):
+
+                print(
+                    f"{tool}: {count}"
+                )
+
+        else:
+
+            print("No record usage recorded.")
+
+        print("\nLATEST ACTIVITY")
+
+        latest_activity = analytics[
+            "latest_activity"
+        ]
+
+        if latest_activity:
+
+            print(
+                f"Event ID: {latest_activity[0]}"
+            )
+
+            print(
+                f"Client: {latest_activity[1]}"
+            )
+
+            print(
+                f"User: {latest_activity[2]}"
+            )
+
+            print(
+                f"Event: {latest_activity[3]}"
+            )
+
+            print(
+                f"Tool: {latest_activity[4]}"
+            )
+
+            print(
+                f"Records Affected: "
+                f"{latest_activity[5]}"
+            )
+
+            print(
+                f"Metadata: {latest_activity[6]}"
+            )
+
+            print(
+                f"Date: {latest_activity[7]}"
+            )
+
+        else:
+
+            print("No recent activity.")
+
+        print("========================================")
+
+    except Exception as error:
+
+        handle_error(
+            error,
+            "Displaying usage analytics"
+        )
+
+
+# ========================================
 # DISPLAY LEAD ACTIVITIES
 # ========================================
 
@@ -256,6 +457,11 @@ def show_lead_activities(lead_id):
 
         activities = get_lead_activities(
             lead_id
+        )
+
+        record_usage(
+            event_type="ACTIVITY_HISTORY_VIEWED",
+            metadata=f"Lead ID: {lead_id}"
         )
 
         print("\n========================================")
@@ -314,6 +520,10 @@ def show_import_batches():
     try:
 
         batches = get_import_batches()
+
+        record_usage(
+            event_type="IMPORT_BATCH_HISTORY_VIEWED"
+        )
 
         print("\n========================================")
         print("          IMPORT BATCH HISTORY")
@@ -679,6 +889,12 @@ while True:
                 crm_record
             )
 
+            record_usage(
+                event_type="LEAD_CREATED",
+                records_affected=1,
+                metadata=f"Lead ID: {lead_id}"
+            )
+
             print(
                 "\n===== LEAD SAVED ====="
             )
@@ -715,6 +931,11 @@ while True:
         try:
 
             leads = get_all_leads()
+
+            record_usage(
+                event_type="LEADS_VIEWED",
+                records_affected=len(leads)
+            )
 
             print(
                 "\n===== ALL CRM LEADS ====="
@@ -767,6 +988,12 @@ while True:
 
             results = search_leads_by_email(
                 email
+            )
+
+            record_usage(
+                event_type="EMAIL_SEARCH",
+                records_affected=len(results),
+                metadata=f"Email: {email}"
             )
 
             print(
@@ -822,6 +1049,12 @@ while True:
                 priority
             )
 
+            record_usage(
+                event_type="PRIORITY_SEARCH",
+                records_affected=len(results),
+                metadata=f"Priority: {priority}"
+            )
+
             print(
                 "\n===== PRIORITY SEARCH RESULTS ====="
             )
@@ -870,6 +1103,13 @@ while True:
             lead = get_lead_by_id(
                 int(lead_id)
             )
+
+            if lead:
+
+                record_usage(
+                    event_type="LEAD_VIEWED",
+                    metadata=f"Lead ID: {lead_id}"
+                )
 
             print(
                 "\n===== LEAD DETAILS ====="
@@ -999,6 +1239,16 @@ while True:
                     )
                 )
 
+                record_usage(
+                    event_type="LEAD_UPDATED",
+                    records_affected=1,
+                    metadata=(
+                        f"Lead ID: {lead_id}; "
+                        f"Priority: {priority}; "
+                        f"Score: {lead_score}"
+                    )
+                )
+
                 print(
                     "\nLead updated successfully."
                 )
@@ -1115,6 +1365,15 @@ while True:
                     description
                 )
 
+                record_usage(
+                    event_type="STATUS_CHANGED",
+                    records_affected=1,
+                    metadata=(
+                        f"Lead ID: {lead_id}; "
+                        f"{old_status} -> {status}"
+                    )
+                )
+
                 print(
                     "\nLead status updated successfully."
                 )
@@ -1180,6 +1439,12 @@ while True:
 
             results = search_leads_by_status(
                 status
+            )
+
+            record_usage(
+                event_type="STATUS_SEARCH",
+                records_affected=len(results),
+                metadata=f"Status: {status}"
             )
 
             print(
@@ -1264,6 +1529,12 @@ while True:
                 )
 
                 if rows_deleted:
+
+                    record_usage(
+                        event_type="LEAD_DELETED",
+                        records_affected=1,
+                        metadata=f"Lead ID: {lead_id}"
+                    )
 
                     print(
                         "\nLead deleted successfully."
@@ -1360,10 +1631,18 @@ while True:
         show_import_batches()
 
     # ==================================================
-    # 13. EXIT
+    # 13. VIEW USAGE ANALYTICS
     # ==================================================
 
     elif choice == "13":
+
+        show_usage_analytics()
+
+    # ==================================================
+    # 14. EXIT
+    # ==================================================
+
+    elif choice == "14":
 
         print(
             "\nGoodbye!"
@@ -1379,5 +1658,5 @@ while True:
 
         print(
             "\nInvalid option. "
-            "Please choose 1-13."
+            "Please choose 1-14."
         )

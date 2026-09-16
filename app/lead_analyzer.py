@@ -1,6 +1,14 @@
 import os
 import json
 import requests
+from dotenv import load_dotenv
+
+
+# ==========================================
+# LOAD ENVIRONMENT VARIABLES
+# ==========================================
+
+load_dotenv()
 
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
@@ -316,4 +324,3 @@ Rules:
         raise RuntimeError(
             f"NVIDIA API request failed: {error}"
         )
-
