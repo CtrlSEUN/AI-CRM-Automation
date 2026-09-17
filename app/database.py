@@ -1,19 +1,47 @@
 import sqlite3
 from pathlib import Path
+
 from app.duplicate_detector import detect_duplicate
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "data" / "crm.db"
 
+ALLOWED_STATUSES = {
+    "NEW",
+    "CONTACTED",
+    "QUALIFIED",
+    "CONVERTED",
+    "LOST"
+}
+
 
 def get_connection():
-    conn = sqlite3.connect(DATABASE_PATH)
+    """
+    Create and return a SQLite database connection.
+
+    The database directory is created automatically if it does not exist.
+    Foreign-key enforcement is enabled for every connection.
+    """
+
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=10
+    )
+
     conn.execute("PRAGMA foreign_keys = ON")
+
     return conn
 
 
 def create_database():
+    """
+    Create the CRM database and required tables/indexes.
+    Existing data is preserved.
+    """
+
     conn = get_connection()
 
     try:
@@ -89,7 +117,6 @@ def create_database():
             )
         """)
 
-        # Day 27: Usage Analytics Foundation
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS usage_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +141,29 @@ def create_database():
 
 
 def insert_lead(lead):
+    """
+    Insert one lead and create its initial activity record.
+    """
+
+    if not isinstance(lead, dict):
+        raise TypeError("lead must be a dictionary.")
+
+    name = str(lead.get("name") or "").strip()
+    email = str(lead.get("email") or "").strip()
+
+    if not name:
+        raise ValueError("Lead name is required.")
+
+    if not email:
+        raise ValueError("Lead email is required.")
+
+    status = str(lead.get("status", "NEW") or "NEW").strip().upper()
+
+    if status not in ALLOWED_STATUSES:
+        raise ValueError(
+            f"Invalid status. Allowed values: {sorted(ALLOWED_STATUSES)}"
+        )
+
     conn = get_connection()
 
     try:
@@ -141,8 +191,8 @@ def insert_lead(lead):
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            lead.get("name"),
-            lead.get("email"),
+            name,
+            email,
             lead.get("phone"),
             lead.get("company"),
             lead.get("message"),
@@ -156,7 +206,7 @@ def insert_lead(lead):
             lead.get("priority"),
             lead.get("lead_score"),
             lead.get("summary"),
-            lead.get("status", "NEW"),
+            status,
             lead.get("import_batch_id")
         ))
 
@@ -188,6 +238,16 @@ def insert_lead(lead):
 
 
 def get_lead_by_email(email):
+    """
+    Find a lead by email using case-insensitive,
+    whitespace-normalized comparison.
+    """
+
+    email = str(email or "").strip()
+
+    if not email:
+        return None
+
     conn = get_connection()
 
     try:
@@ -219,6 +279,16 @@ def import_clean_leads(
     dataset_name=None,
     source_file=None
 ):
+    """
+    Import CLEAN + UNIQUE rows into the CRM.
+
+    Exact email duplicates are skipped.
+    Fuzzy duplicate matches are imported but flagged for review.
+    """
+
+    if clean_dataframe is None:
+        raise ValueError("clean_dataframe is required.")
+
     required_columns = {
         "name",
         "email",
@@ -236,6 +306,18 @@ def import_clean_leads(
             f"Missing required columns: {sorted(missing_columns)}"
         )
 
+    if not batch_key:
+        raise ValueError("batch_key is required.")
+
+    if not client_name:
+        raise ValueError("client_name is required.")
+
+    if not dataset_name:
+        raise ValueError("dataset_name is required.")
+
+    if not source_file:
+        raise ValueError("source_file is required.")
+
     clean_rows = clean_dataframe[
         (clean_dataframe["validation_status"] == "CLEAN") &
         (clean_dataframe["duplicate_status"] == "UNIQUE")
@@ -246,44 +328,31 @@ def import_clean_leads(
     try:
         cursor = conn.cursor()
 
-        if batch_key:
-            cursor.execute("""
-                SELECT
-                    id,
-                    batch_key,
-                    client_name,
-                    dataset_name,
-                    source_file,
-                    imported_count,
-                    status,
-                    created_at
-                FROM import_batches
-                WHERE batch_key = ?
-            """, (batch_key,))
+        cursor.execute("""
+            SELECT
+                id,
+                batch_key,
+                client_name,
+                dataset_name,
+                source_file,
+                imported_count,
+                status,
+                created_at
+            FROM import_batches
+            WHERE batch_key = ?
+        """, (batch_key,))
 
-            existing_batch = cursor.fetchone()
+        existing_batch = cursor.fetchone()
 
-            if existing_batch:
-                return {
-                    "imported": 0,
-                    "skipped": len(clean_rows),
-                    "existing_duplicates": 0,
-                    "possible_duplicates": 0,
-                    "already_imported": True,
-                    "batch_id": existing_batch[0]
-                }
-
-        if not batch_key:
-            raise ValueError("batch_key is required.")
-
-        if not client_name:
-            raise ValueError("client_name is required.")
-
-        if not dataset_name:
-            raise ValueError("dataset_name is required.")
-
-        if not source_file:
-            raise ValueError("source_file is required.")
+        if existing_batch:
+            return {
+                "imported": 0,
+                "skipped": len(clean_rows),
+                "existing_duplicates": 0,
+                "possible_duplicates": 0,
+                "already_imported": True,
+                "batch_id": existing_batch[0]
+            }
 
         cursor.execute("""
             INSERT INTO import_batches (
@@ -325,11 +394,41 @@ def import_clean_leads(
 
         for _, row in clean_rows.iterrows():
 
-            name = str(row["name"]).strip()
-            email = str(row["email"]).strip()
-            phone = str(row["phone"]).strip()
-            company = str(row["company"]).strip()
-            message = str(row["message"]).strip()
+            raw_name = row.get("name")
+            raw_email = row.get("email")
+            raw_phone = row.get("phone")
+            raw_company = row.get("company")
+            raw_message = row.get("message")
+
+            name = (
+                ""
+                if raw_name is None
+                else str(raw_name).strip()
+            )
+
+            email = (
+                ""
+                if raw_email is None
+                else str(raw_email).strip()
+            )
+
+            phone = (
+                ""
+                if raw_phone is None
+                else str(raw_phone).strip()
+            )
+
+            company = (
+                ""
+                if raw_company is None
+                else str(raw_company).strip()
+            )
+
+            message = (
+                ""
+                if raw_message is None
+                else str(raw_message).strip()
+            )
 
             if not name or not email:
                 skipped_count += 1
@@ -353,6 +452,7 @@ def import_clean_leads(
             duplicate_reason = None
 
             for existing_lead in existing_leads:
+
                 existing_record = {
                     "name": existing_lead[1],
                     "email": existing_lead[2],
@@ -366,6 +466,7 @@ def import_clean_leads(
                 )
 
                 if duplicate_result["status"] == "DUPLICATE":
+
                     duplicate_flag = 1
 
                     duplicate_reason = (
@@ -377,6 +478,16 @@ def import_clean_leads(
 
                     possible_duplicate_count += 1
                     break
+
+            status = row.get("status", "NEW")
+
+            if status is None:
+                status = "NEW"
+
+            status = str(status).strip().upper()
+
+            if status not in ALLOWED_STATUSES:
+                status = "NEW"
 
             cursor.execute("""
                 INSERT INTO leads (
@@ -415,7 +526,7 @@ def import_clean_leads(
                 row.get("priority"),
                 row.get("lead_score"),
                 row.get("summary"),
-                row.get("status", "NEW"),
+                status,
                 batch_id
             ))
 
@@ -435,6 +546,7 @@ def import_clean_leads(
             ))
 
             if duplicate_flag:
+
                 cursor.execute("""
                     INSERT INTO lead_activities (
                         lead_id,
@@ -490,6 +602,9 @@ def import_clean_leads(
 
 
 def get_import_batch(batch_key):
+    if not batch_key:
+        return None
+
     conn = get_connection()
 
     try:
@@ -542,6 +657,9 @@ def get_import_batches():
 
 
 def get_leads_by_import_batch(batch_id):
+    if not isinstance(batch_id, int) or batch_id <= 0:
+        raise ValueError("batch_id must be a positive integer.")
+
     conn = get_connection()
 
     try:
@@ -571,6 +689,9 @@ def get_leads_by_import_batch(batch_id):
 
 
 def get_import_batch_stats(batch_id):
+    if not isinstance(batch_id, int) or batch_id <= 0:
+        raise ValueError("batch_id must be a positive integer.")
+
     conn = get_connection()
 
     try:
@@ -603,17 +724,10 @@ def get_import_batch_stats(batch_id):
 
         total_leads = cursor.fetchone()[0]
 
-        statuses = [
-            "NEW",
-            "CONTACTED",
-            "QUALIFIED",
-            "CONVERTED",
-            "LOST"
-        ]
-
         status_counts = {}
 
-        for status in statuses:
+        for status in sorted(ALLOWED_STATUSES):
+
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM leads
@@ -674,14 +788,6 @@ def get_all_import_batch_stats():
 
         results = []
 
-        statuses = [
-            "NEW",
-            "CONTACTED",
-            "QUALIFIED",
-            "CONVERTED",
-            "LOST"
-        ]
-
         for batch in batches:
 
             batch_id = batch[0]
@@ -696,7 +802,8 @@ def get_all_import_batch_stats():
 
             status_counts = {}
 
-            for status in statuses:
+            for status in sorted(ALLOWED_STATUSES):
+
                 cursor.execute("""
                     SELECT COUNT(*)
                     FROM leads
@@ -736,6 +843,9 @@ def get_all_import_batch_stats():
 
 
 def update_lead(lead_id, priority, lead_score):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
+
     conn = get_connection()
 
     try:
@@ -753,9 +863,25 @@ def update_lead(lead_id, priority, lead_score):
             lead_id
         ))
 
+        updated = cursor.rowcount > 0
+
+        if updated:
+            cursor.execute("""
+                INSERT INTO lead_activities (
+                    lead_id,
+                    activity_type,
+                    description
+                )
+                VALUES (?, ?, ?)
+            """, (
+                lead_id,
+                "UPDATED",
+                f"Lead priority/score updated to {priority}/{lead_score}."
+            ))
+
         conn.commit()
 
-        return cursor.rowcount > 0
+        return updated
 
     except Exception:
         conn.rollback()
@@ -766,19 +892,14 @@ def update_lead(lead_id, priority, lead_score):
 
 
 def update_lead_status(lead_id, status):
-    allowed_statuses = {
-        "NEW",
-        "CONTACTED",
-        "QUALIFIED",
-        "CONVERTED",
-        "LOST"
-    }
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
 
-    status = status.upper()
+    status = str(status or "").strip().upper()
 
-    if status not in allowed_statuses:
+    if status not in ALLOWED_STATUSES:
         raise ValueError(
-            f"Invalid status. Allowed values: {sorted(allowed_statuses)}"
+            f"Invalid status. Allowed values: {sorted(ALLOWED_STATUSES)}"
         )
 
     conn = get_connection()
@@ -825,7 +946,12 @@ def update_lead_status(lead_id, status):
 
 
 def get_leads_by_status(status):
-    status = status.upper()
+    status = str(status or "").strip().upper()
+
+    if status not in ALLOWED_STATUSES:
+        raise ValueError(
+            f"Invalid status. Allowed values: {sorted(ALLOWED_STATUSES)}"
+        )
 
     conn = get_connection()
 
@@ -856,6 +982,9 @@ def get_leads_by_status(status):
 
 
 def delete_lead(lead_id):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
+
     conn = get_connection()
 
     try:
@@ -898,17 +1027,10 @@ def get_dashboard_stats():
 
         total_leads = cursor.fetchone()[0]
 
-        statuses = [
-            "NEW",
-            "CONTACTED",
-            "QUALIFIED",
-            "CONVERTED",
-            "LOST"
-        ]
-
         status_counts = {}
 
-        for status in statuses:
+        for status in sorted(ALLOWED_STATUSES):
+
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM leads
@@ -975,10 +1097,30 @@ def get_dashboard_stats():
 
 
 def create_lead_activity(lead_id, activity_type, description):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
+
+    activity_type = str(activity_type or "").strip().upper()
+
+    if not activity_type:
+        raise ValueError("activity_type is required.")
+
     conn = get_connection()
 
     try:
         cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, status
+            FROM leads
+            WHERE id = ?
+        """, (lead_id,))
+
+        lead = cursor.fetchone()
+
+        if not lead:
+            conn.rollback()
+            return False
 
         cursor.execute("""
             INSERT INTO lead_activities (
@@ -999,36 +1141,26 @@ def create_lead_activity(lead_id, activity_type, description):
             "WHATSAPP"
         }
 
-        if activity_type.upper() in outreach_types:
+        if activity_type in outreach_types and lead[1] == "NEW":
 
             cursor.execute("""
-                SELECT status
-                FROM leads
+                UPDATE leads
+                SET status = 'CONTACTED'
                 WHERE id = ?
             """, (lead_id,))
 
-            lead = cursor.fetchone()
-
-            if lead and lead[0] == "NEW":
-
-                cursor.execute("""
-                    UPDATE leads
-                    SET status = 'CONTACTED'
-                    WHERE id = ?
-                """, (lead_id,))
-
-                cursor.execute("""
-                    INSERT INTO lead_activities (
-                        lead_id,
-                        activity_type,
-                        description
-                    )
-                    VALUES (?, ?, ?)
-                """, (
+            cursor.execute("""
+                INSERT INTO lead_activities (
                     lead_id,
-                    "STATUS_CHANGED",
-                    "Lead automatically moved from NEW to CONTACTED after outreach."
-                ))
+                    activity_type,
+                    description
+                )
+                VALUES (?, ?, ?)
+            """, (
+                lead_id,
+                "STATUS_CHANGED",
+                "Lead automatically moved from NEW to CONTACTED after outreach."
+            ))
 
         conn.commit()
 
@@ -1043,6 +1175,9 @@ def create_lead_activity(lead_id, activity_type, description):
 
 
 def get_lead_activities(lead_id):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
+
     conn = get_connection()
 
     try:
@@ -1074,6 +1209,21 @@ def log_usage_event(
     records_affected=0,
     metadata=None
 ):
+    """
+    Store one usage event.
+    """
+
+    event_type = str(event_type or "").strip()
+
+    if not event_type:
+        raise ValueError("event_type is required.")
+
+    if not isinstance(records_affected, int):
+        raise TypeError("records_affected must be an integer.")
+
+    if records_affected < 0:
+        raise ValueError("records_affected cannot be negative.")
+
     conn = get_connection()
 
     try:
@@ -1120,9 +1270,6 @@ def track_usage(
 ):
     """
     Reusable usage-tracking helper.
-
-    This keeps usage tracking consistent across
-    CRM features and future application services.
     """
 
     return log_usage_event(
@@ -1144,9 +1291,11 @@ def get_usage_events(
 ):
     """
     Retrieve usage events with optional filters.
-
-    This is intended for internal/admin analytics.
+    Intended for internal/admin analytics.
     """
+
+    if not isinstance(limit, int):
+        raise TypeError("limit must be an integer.")
 
     if limit <= 0:
         raise ValueError("limit must be greater than 0.")
@@ -1209,9 +1358,6 @@ def get_usage_events(
 def get_usage_analytics():
     """
     Return high-level usage analytics.
-
-    This provides the foundation for future
-    admin/client analytics dashboards.
     """
 
     conn = get_connection()
@@ -1219,40 +1365,34 @@ def get_usage_analytics():
     try:
         cursor = conn.cursor()
 
-        # Total number of tracked events.
         total_events = cursor.execute("""
             SELECT COUNT(*)
             FROM usage_events
         """).fetchone()[0]
 
-        # Total number of records affected by tracked events.
         total_records_affected = cursor.execute("""
             SELECT COALESCE(SUM(records_affected), 0)
             FROM usage_events
         """).fetchone()[0]
 
-        # Number of lead creation events.
         leads_created = cursor.execute("""
             SELECT COUNT(*)
             FROM usage_events
             WHERE event_type = 'LEAD_CREATED'
         """).fetchone()[0]
 
-        # Number of distinct users that have generated events.
         unique_users = cursor.execute("""
             SELECT COUNT(DISTINCT user_id)
             FROM usage_events
             WHERE user_id IS NOT NULL
         """).fetchone()[0]
 
-        # Number of distinct clients that have generated events.
         unique_clients = cursor.execute("""
             SELECT COUNT(DISTINCT client_id)
             FROM usage_events
             WHERE client_id IS NOT NULL
         """).fetchone()[0]
 
-        # Users active during the last 24 hours.
         active_users_24h = cursor.execute("""
             SELECT COUNT(DISTINCT user_id)
             FROM usage_events
@@ -1260,7 +1400,6 @@ def get_usage_analytics():
             AND created_at >= datetime('now', '-24 hours')
         """).fetchone()[0]
 
-        # Clients active during the last 24 hours.
         active_clients_24h = cursor.execute("""
             SELECT COUNT(DISTINCT client_id)
             FROM usage_events
@@ -1268,7 +1407,6 @@ def get_usage_analytics():
             AND created_at >= datetime('now', '-24 hours')
         """).fetchone()[0]
 
-        # Events grouped by event type.
         cursor.execute("""
             SELECT
                 event_type,
@@ -1283,7 +1421,6 @@ def get_usage_analytics():
             for row in cursor.fetchall()
         }
 
-        # Events grouped by tool.
         cursor.execute("""
             SELECT
                 tool_used,
@@ -1299,7 +1436,6 @@ def get_usage_analytics():
             for row in cursor.fetchall()
         }
 
-        # Records processed grouped by tool.
         cursor.execute("""
             SELECT
                 tool_used,
@@ -1315,7 +1451,6 @@ def get_usage_analytics():
             for row in cursor.fetchall()
         }
 
-        # Most recent usage event.
         cursor.execute("""
             SELECT
                 id,

@@ -62,7 +62,7 @@ def record_usage(
     event_type,
     tool_used="CRM CLI",
     records_affected=0,
-    metadata=None
+    metadata=None,
 ):
     """
     Record CRM usage without allowing analytics
@@ -70,18 +70,16 @@ def record_usage(
     """
 
     try:
-
         track_usage(
             client_id=CLIENT_ID,
             user_id=USER_ID,
             event_type=event_type,
             tool_used=tool_used,
             records_affected=records_affected,
-            metadata=metadata
+            metadata=metadata,
         )
 
     except Exception as error:
-
         print(
             f"\nWarning: Usage tracking failed: {error}"
         )
@@ -119,7 +117,11 @@ def show_menu():
 # ========================================
 
 def display_lead(lead):
-    """Display a single CRM lead."""
+    """Display a single CRM lead safely."""
+
+    if not lead or len(lead) < 17:
+        print("\nUnable to display lead: incomplete lead data.")
+        return
 
     print(f"\nID: {lead[0]}")
     print(f"Name: {lead[1]}")
@@ -149,17 +151,16 @@ def validate_new_lead(lead):
     """Validate all required customer lead fields."""
 
     validations = [
-        ("Name", validate_name(lead["name"])),
-        ("Email", validate_email(lead["email"])),
-        ("Phone", validate_phone(lead["phone"])),
-        ("Company", validate_company(lead["company"])),
-        ("Message", validate_message(lead["message"])),
+        ("Name", validate_name(lead.get("name", ""))),
+        ("Email", validate_email(lead.get("email", ""))),
+        ("Phone", validate_phone(lead.get("phone", ""))),
+        ("Company", validate_company(lead.get("company", ""))),
+        ("Message", validate_message(lead.get("message", ""))),
     ]
 
     errors = []
 
     for field_name, result in validations:
-
         valid, message = result
 
         if not valid:
@@ -175,16 +176,15 @@ def validate_new_lead(lead):
 # ========================================
 
 def validate_status(status):
-    """Validate a lead status."""
+    """Validate a lead status safely."""
 
-    status = status.upper()
+    status = str(status or "").strip().upper()
 
     if status not in ALLOWED_STATUSES:
-
         return (
             False,
             "Status must be one of: "
-            + ", ".join(ALLOWED_STATUSES)
+            + ", ".join(ALLOWED_STATUSES),
         )
 
     return True, "Valid status"
@@ -201,6 +201,9 @@ def check_for_duplicate(cleaned_lead):
 
     for existing_lead in existing_leads:
 
+        if not existing_lead or len(existing_lead) < 5:
+            continue
+
         existing_lead_data = {
             "name": existing_lead[1],
             "email": existing_lead[2],
@@ -211,7 +214,7 @@ def check_for_duplicate(cleaned_lead):
 
         duplicate, reason = is_potential_duplicate(
             cleaned_lead,
-            existing_lead_data
+            existing_lead_data,
         )
 
         if duplicate:
@@ -228,7 +231,6 @@ def show_dashboard():
     """Display CRM dashboard statistics."""
 
     try:
-
         stats = get_dashboard_stats()
 
         record_usage(
@@ -267,12 +269,11 @@ def show_dashboard():
         print("\nLEADS BY STATUS")
 
         for status in ALLOWED_STATUSES:
-
             count = stats[
                 "status_counts"
             ].get(
                 status,
-                0
+                0,
             )
 
             print(
@@ -282,10 +283,9 @@ def show_dashboard():
         print("========================================")
 
     except Exception as error:
-
         handle_error(
             error,
-            "Displaying CRM dashboard"
+            "Displaying CRM dashboard",
         )
 
 
@@ -297,7 +297,6 @@ def show_usage_analytics():
     """Display internal CRM usage analytics."""
 
     try:
-
         analytics = get_usage_analytics()
 
         record_usage(
@@ -346,49 +345,37 @@ def show_usage_analytics():
         print("\nEVENTS BY TYPE")
 
         if analytics["events_by_type"]:
-
             for event_type, count in (
                 analytics["events_by_type"].items()
             ):
-
                 print(
                     f"{event_type}: {count}"
                 )
-
         else:
-
             print("No usage events recorded.")
 
         print("\nEVENTS BY TOOL")
 
         if analytics["events_by_tool"]:
-
             for tool, count in (
                 analytics["events_by_tool"].items()
             ):
-
                 print(
                     f"{tool}: {count}"
                 )
-
         else:
-
             print("No tool usage recorded.")
 
         print("\nRECORDS AFFECTED BY TOOL")
 
         if analytics["records_by_tool"]:
-
             for tool, count in (
                 analytics["records_by_tool"].items()
             ):
-
                 print(
                     f"{tool}: {count}"
                 )
-
         else:
-
             print("No record usage recorded.")
 
         print("\nLATEST ACTIVITY")
@@ -398,51 +385,40 @@ def show_usage_analytics():
         ]
 
         if latest_activity:
-
             print(
                 f"Event ID: {latest_activity[0]}"
             )
-
             print(
                 f"Client: {latest_activity[1]}"
             )
-
             print(
                 f"User: {latest_activity[2]}"
             )
-
             print(
                 f"Event: {latest_activity[3]}"
             )
-
             print(
                 f"Tool: {latest_activity[4]}"
             )
-
             print(
                 f"Records Affected: "
                 f"{latest_activity[5]}"
             )
-
             print(
                 f"Metadata: {latest_activity[6]}"
             )
-
             print(
                 f"Date: {latest_activity[7]}"
             )
-
         else:
-
             print("No recent activity.")
 
         print("========================================")
 
     except Exception as error:
-
         handle_error(
             error,
-            "Displaying usage analytics"
+            "Displaying usage analytics",
         )
 
 
@@ -454,14 +430,13 @@ def show_lead_activities(lead_id):
     """Display the activity history of a lead."""
 
     try:
-
         activities = get_lead_activities(
             lead_id
         )
 
         record_usage(
             event_type="ACTIVITY_HISTORY_VIEWED",
-            metadata=f"Lead ID: {lead_id}"
+            metadata=f"Lead ID: {lead_id}",
         )
 
         print("\n========================================")
@@ -469,11 +444,9 @@ def show_lead_activities(lead_id):
         print("========================================")
 
         if not activities:
-
             print(
                 "No activity history found."
             )
-
             return
 
         for activity in activities:
@@ -503,10 +476,9 @@ def show_lead_activities(lead_id):
             )
 
     except Exception as error:
-
         handle_error(
             error,
-            "Retrieving lead activity history"
+            "Retrieving lead activity history",
         )
 
 
@@ -518,7 +490,6 @@ def show_import_batches():
     """Display all recorded CRM import batches."""
 
     try:
-
         batches = get_import_batches()
 
         record_usage(
@@ -530,9 +501,7 @@ def show_import_batches():
         print("========================================")
 
         if not batches:
-
             print("No import batches found.")
-
             return
 
         for batch in batches:
@@ -554,24 +523,26 @@ def show_import_batches():
         ).strip()
 
         if not batch_id:
-
             return
 
         if not batch_id.isdigit():
-
             print("Invalid Batch ID.")
+            return
 
+        batch_id = int(batch_id)
+
+        if batch_id <= 0:
+            print("Batch ID must be greater than 0.")
             return
 
         show_import_batch_details(
-            int(batch_id)
+            batch_id
         )
 
     except Exception as error:
-
         handle_error(
             error,
-            "Displaying import batch history"
+            "Displaying import batch history",
         )
 
 
@@ -583,17 +554,17 @@ def show_import_batch_details(batch_id):
     """Display details and leads belonging to one batch."""
 
     try:
+        if not isinstance(batch_id, int) or batch_id <= 0:
+            print("Invalid Batch ID.")
+            return
 
         batches = get_import_batches()
 
         selected_batch = None
 
         for batch in batches:
-
             if batch[0] == batch_id:
-
                 selected_batch = batch
-
                 break
 
         print("\n========================================")
@@ -601,9 +572,7 @@ def show_import_batch_details(batch_id):
         print("========================================")
 
         if not selected_batch:
-
             print("Import batch not found.")
-
             return
 
         print(
@@ -647,28 +616,37 @@ def show_import_batch_details(batch_id):
         print("\nLEADS IN THIS BATCH")
 
         if not leads:
-
             print(
                 "No leads found for this batch."
             )
-
             return
 
-        for lead in leads:
+        displayed_count = 0
 
-            display_lead(
-                lead
+        for batch_lead in leads:
+
+            # get_leads_by_import_batch() returns
+            # a compact tuple. Fetch the complete
+            # lead before passing it to display_lead().
+            full_lead = get_lead_by_id(
+                batch_lead[0]
             )
 
+            if full_lead:
+                display_lead(
+                    full_lead
+                )
+                displayed_count += 1
+
         print(
-            f"Total leads in batch: {len(leads)}"
+            f"Total leads in batch: "
+            f"{displayed_count}"
         )
 
     except Exception as error:
-
         handle_error(
             error,
-            "Displaying import batch details"
+            "Displaying import batch details",
         )
 
 
@@ -676,507 +654,328 @@ def show_import_batch_details(batch_id):
 # MAIN CRM LOOP
 # ========================================
 
-while True:
+def main():
+    """Run the interactive CRM command-line application."""
 
-    show_menu()
+    while True:
 
-    choice = input(
-        "Choose an option: "
-    ).strip()
+        show_menu()
 
-    # ==================================================
-    # 1. ADD NEW LEAD
-    # ==================================================
-
-    if choice == "1":
-
-        print("\n===== ADD NEW LEAD =====")
-
-        new_lead = {
-            "name": input(
-                "Customer name: "
-            ).strip(),
-
-            "email": input(
-                "Customer email: "
-            ).strip().lower(),
-
-            "phone": input(
-                "Customer phone: "
-            ).strip(),
-
-            "company": input(
-                "Company: "
-            ).strip(),
-
-            "message": input(
-                "Customer message: "
-            ).strip(),
-        }
-
-        try:
-
-            validation_errors = validate_new_lead(
-                new_lead
-            )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Lead validation"
-            )
-
-            continue
-
-        if validation_errors:
-
-            print(
-                "\n===== VALIDATION ERRORS ====="
-            )
-
-            for error in validation_errors:
-
-                print(
-                    f"❌ {error}"
-                )
-
-            print(
-                "\nLead was not saved."
-            )
-
-            continue
-
-        print(
-            "\n===== VALIDATION PASSED ====="
-        )
-
-        print(
-            "All lead information is valid."
-        )
-
-        # ----------------------------------------------
-        # CLEAN LEAD
-        # ----------------------------------------------
-
-        try:
-
-            cleaned_lead = clean_lead(
-                new_lead
-            )
-
-            print(
-                "\n===== CLEANED LEAD ====="
-            )
-
-            print(
-                cleaned_lead
-            )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Lead cleaning"
-            )
-
-            print(
-                "\nLead was not saved."
-            )
-
-            continue
-
-        # ----------------------------------------------
-        # DUPLICATE DETECTION
-        # ----------------------------------------------
-
-        print(
-            "\n===== DUPLICATE CHECK ====="
-        )
-
-        try:
-
-            duplicate, duplicate_reason = (
-                check_for_duplicate(
-                    cleaned_lead
-                )
-            )
-
-            if duplicate:
-
-                print(
-                    "Potential duplicate: YES"
-                )
-
-            else:
-
-                print(
-                    "Potential duplicate: NO"
-                )
-
-            print(
-                f"Reason: {duplicate_reason}"
-            )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Duplicate lead detection"
-            )
-
-            print(
-                "\nLead was not saved."
-            )
-
-            continue
-
-        # ----------------------------------------------
-        # AI ANALYSIS
-        # ----------------------------------------------
-
-        print(
-            "\n===== AI ANALYSIS ====="
-        )
-
-        try:
-
-            analysis = analyze_lead(
-                cleaned_lead
-            )
-
-            print(
-                analysis
-            )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "AI lead analysis"
-            )
-
-            print(
-                "\nLead was not saved because "
-                "AI analysis failed."
-            )
-
-            continue
-
-        # ----------------------------------------------
-        # CREATE CRM RECORD
-        # ----------------------------------------------
-
-        crm_record = {
-            **cleaned_lead,
-
-            "duplicate": duplicate,
-
-            "duplicate_reason":
-                duplicate_reason,
-
-            "ai_analysis":
-                analysis,
-        }
-
-        # ----------------------------------------------
-        # SAVE LEAD
-        # ----------------------------------------------
-
-        try:
-
-            lead_id = insert_lead(
-                crm_record
-            )
-
-            record_usage(
-                event_type="LEAD_CREATED",
-                records_affected=1,
-                metadata=f"Lead ID: {lead_id}"
-            )
-
-            print(
-                "\n===== LEAD SAVED ====="
-            )
-
-            print(
-                "Lead saved successfully."
-            )
-
-            print(
-                f"Lead ID: {lead_id}"
-            )
-
-            print(
-                "Status: NEW"
-            )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Saving lead to database"
-            )
-
-            print(
-                "\nLead could not be saved."
-            )
-
-    # ==================================================
-    # 2. VIEW ALL LEADS
-    # ==================================================
-
-    elif choice == "2":
-
-        try:
-
-            leads = get_all_leads()
-
-            record_usage(
-                event_type="LEADS_VIEWED",
-                records_affected=len(leads)
-            )
-
-            print(
-                "\n===== ALL CRM LEADS ====="
-            )
-
-            if leads:
-
-                for lead in leads:
-
-                    display_lead(
-                        lead
-                    )
-
-            else:
-
-                print(
-                    "No leads found."
-                )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Retrieving all leads"
-            )
-
-    # ==================================================
-    # 3. SEARCH BY EMAIL
-    # ==================================================
-
-    elif choice == "3":
-
-        email = input(
-            "Enter customer email: "
-        ).strip().lower()
-
-        valid, message = validate_email(
-            email
-        )
-
-        if not valid:
-
-            print(
-                f"\nInvalid email: {message}"
-            )
-
-            continue
-
-        try:
-
-            results = search_leads_by_email(
-                email
-            )
-
-            record_usage(
-                event_type="EMAIL_SEARCH",
-                records_affected=len(results),
-                metadata=f"Email: {email}"
-            )
-
-            print(
-                "\n===== EMAIL SEARCH RESULTS ====="
-            )
-
-            if results:
-
-                for lead in results:
-
-                    display_lead(
-                        lead
-                    )
-
-            else:
-
-                print(
-                    "No lead found with that email."
-                )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Searching leads by email"
-            )
-
-    # ==================================================
-    # 4. SEARCH BY PRIORITY
-    # ==================================================
-
-    elif choice == "4":
-
-        priority = input(
-            "Enter priority (LOW, MEDIUM, HIGH): "
-        ).strip().upper()
-
-        valid, message = validate_priority(
-            priority
-        )
-
-        if not valid:
-
-            print(
-                f"\nInvalid priority: {message}"
-            )
-
-            continue
-
-        try:
-
-            results = search_leads_by_priority(
-                priority
-            )
-
-            record_usage(
-                event_type="PRIORITY_SEARCH",
-                records_affected=len(results),
-                metadata=f"Priority: {priority}"
-            )
-
-            print(
-                "\n===== PRIORITY SEARCH RESULTS ====="
-            )
-
-            if results:
-
-                for lead in results:
-
-                    display_lead(
-                        lead
-                    )
-
-            else:
-
-                print(
-                    "No leads found with that priority."
-                )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Searching leads by priority"
-            )
-
-    # ==================================================
-    # 5. VIEW LEAD BY ID
-    # ==================================================
-
-    elif choice == "5":
-
-        lead_id = input(
-            "Enter lead ID: "
+        choice = input(
+            "Choose an option: "
         ).strip()
 
-        if not lead_id.isdigit():
+        # ==================================================
+        # 1. ADD NEW LEAD
+        # ==================================================
 
-            print(
-                "Invalid lead ID."
-            )
+        if choice == "1":
 
-            continue
+            print("\n===== ADD NEW LEAD =====")
 
-        try:
+            new_lead = {
+                "name": input(
+                    "Customer name: "
+                ).strip(),
 
-            lead = get_lead_by_id(
-                int(lead_id)
-            )
+                "email": input(
+                    "Customer email: "
+                ).strip().lower(),
 
-            if lead:
+                "phone": input(
+                    "Customer phone: "
+                ).strip(),
 
-                record_usage(
-                    event_type="LEAD_VIEWED",
-                    metadata=f"Lead ID: {lead_id}"
+                "company": input(
+                    "Company: "
+                ).strip(),
+
+                "message": input(
+                    "Customer message: "
+                ).strip(),
+            }
+
+            try:
+                validation_errors = validate_new_lead(
+                    new_lead
                 )
 
-            print(
-                "\n===== LEAD DETAILS ====="
-            )
-
-            if lead:
-
-                display_lead(
-                    lead
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Lead validation",
                 )
+                continue
 
-            else:
+            if validation_errors:
 
                 print(
-                    "Lead not found."
+                    "\n===== VALIDATION ERRORS ====="
                 )
 
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Retrieving lead by ID"
-            )
-
-    # ==================================================
-    # 6. UPDATE PRIORITY AND SCORE
-    # ==================================================
-
-    elif choice == "6":
-
-        lead_id = input(
-            "Enter lead ID: "
-        ).strip()
-
-        if not lead_id.isdigit():
-
-            print(
-                "Invalid lead ID."
-            )
-
-            continue
-
-        lead_id = int(
-            lead_id
-        )
-
-        try:
-
-            existing_lead = get_lead_by_id(
-                lead_id
-            )
-
-            if not existing_lead:
+                for error in validation_errors:
+                    print(
+                        f"❌ {error}"
+                    )
 
                 print(
-                    "Lead not found."
+                    "\nLead was not saved."
                 )
 
                 continue
 
-            display_lead(
-                existing_lead
+            print(
+                "\n===== VALIDATION PASSED ====="
             )
 
+            print(
+                "All lead information is valid."
+            )
+
+            # ----------------------------------------------
+            # CLEAN LEAD
+            # ----------------------------------------------
+
+            try:
+                cleaned_lead = clean_lead(
+                    new_lead
+                )
+
+                print(
+                    "\n===== CLEANED LEAD ====="
+                )
+
+                print(
+                    cleaned_lead
+                )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Lead cleaning",
+                )
+
+                print(
+                    "\nLead was not saved."
+                )
+
+                continue
+
+            # ----------------------------------------------
+            # DUPLICATE DETECTION
+            # ----------------------------------------------
+
+            print(
+                "\n===== DUPLICATE CHECK ====="
+            )
+
+            try:
+                duplicate, duplicate_reason = (
+                    check_for_duplicate(
+                        cleaned_lead
+                    )
+                )
+
+                if duplicate:
+                    print(
+                        "Potential duplicate: YES"
+                    )
+                else:
+                    print(
+                        "Potential duplicate: NO"
+                    )
+
+                print(
+                    f"Reason: {duplicate_reason}"
+                )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Duplicate lead detection",
+                )
+
+                print(
+                    "\nLead was not saved."
+                )
+
+                continue
+
+            # ----------------------------------------------
+            # AI ANALYSIS
+            # ----------------------------------------------
+
+            print(
+                "\n===== AI ANALYSIS ====="
+            )
+
+            try:
+                analysis = analyze_lead(
+                    cleaned_lead
+                )
+
+                print(
+                    analysis
+                )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "AI lead analysis",
+                )
+
+                print(
+                    "\nLead was not saved because "
+                    "AI analysis failed."
+                )
+
+                continue
+
+            # ----------------------------------------------
+            # CREATE CRM RECORD
+            # ----------------------------------------------
+
+            crm_record = {
+                **cleaned_lead,
+                "duplicate": duplicate,
+                "duplicate_reason": duplicate_reason,
+                "ai_analysis": analysis,
+            }
+
+            # ----------------------------------------------
+            # SAVE LEAD
+            # ----------------------------------------------
+
+            try:
+                lead_id = insert_lead(
+                    crm_record
+                )
+
+                record_usage(
+                    event_type="LEAD_CREATED",
+                    records_affected=1,
+                    metadata=f"Lead ID: {lead_id}",
+                )
+
+                print(
+                    "\n===== LEAD SAVED ====="
+                )
+
+                print(
+                    "Lead saved successfully."
+                )
+
+                print(
+                    f"Lead ID: {lead_id}"
+                )
+
+                print(
+                    "Status: NEW"
+                )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Saving lead to database",
+                )
+
+                print(
+                    "\nLead could not be saved."
+                )
+
+        # ==================================================
+        # 2. VIEW ALL LEADS
+        # ==================================================
+
+        elif choice == "2":
+
+            try:
+                leads = get_all_leads()
+
+                record_usage(
+                    event_type="LEADS_VIEWED",
+                    records_affected=len(leads),
+                )
+
+                print(
+                    "\n===== ALL CRM LEADS ====="
+                )
+
+                if leads:
+                    for lead in leads:
+                        display_lead(
+                            lead
+                        )
+                else:
+                    print(
+                        "No leads found."
+                    )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Retrieving all leads",
+                )
+
+        # ==================================================
+        # 3. SEARCH BY EMAIL
+        # ==================================================
+
+        elif choice == "3":
+
+            email = input(
+                "Enter customer email: "
+            ).strip().lower()
+
+            valid, message = validate_email(
+                email
+            )
+
+            if not valid:
+                print(
+                    f"\nInvalid email: {message}"
+                )
+                continue
+
+            try:
+                results = search_leads_by_email(
+                    email
+                )
+
+                record_usage(
+                    event_type="EMAIL_SEARCH",
+                    records_affected=len(results),
+                    metadata=f"Email: {email}",
+                )
+
+                print(
+                    "\n===== EMAIL SEARCH RESULTS ====="
+                )
+
+                if results:
+                    for lead in results:
+                        display_lead(
+                            lead
+                        )
+                else:
+                    print(
+                        "No lead found with that email."
+                    )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Searching leads by email",
+                )
+
+        # ==================================================
+        # 4. SEARCH BY PRIORITY
+        # ==================================================
+
+        elif choice == "4":
+
             priority = input(
-                "Enter new priority "
-                "(LOW, MEDIUM, HIGH): "
+                "Enter priority (LOW, MEDIUM, HIGH): "
             ).strip().upper()
 
             valid, message = validate_priority(
@@ -1184,133 +983,342 @@ while True:
             )
 
             if not valid:
-
                 print(
                     f"\nInvalid priority: {message}"
                 )
-
                 continue
 
-            score_input = input(
-                "Enter new lead score (0-100): "
-            ).strip()
-
-            if not score_input.isdigit():
-
-                print(
-                    "Lead score must be a number."
-                )
-
-                continue
-
-            lead_score = int(
-                score_input
-            )
-
-            valid, message = (
-                validate_lead_score(
-                    lead_score
-                )
-            )
-
-            if not valid:
-
-                print(
-                    f"\nInvalid lead score: {message}"
-                )
-
-                continue
-
-            rows_updated = update_lead(
-                lead_id,
-                priority,
-                lead_score
-            )
-
-            if rows_updated:
-
-                create_lead_activity(
-                    lead_id,
-                    "LEAD_UPDATED",
-                    (
-                        f"Priority changed to "
-                        f"{priority}. Lead score "
-                        f"changed to {lead_score}."
-                    )
+            try:
+                results = search_leads_by_priority(
+                    priority
                 )
 
                 record_usage(
-                    event_type="LEAD_UPDATED",
-                    records_affected=1,
-                    metadata=(
-                        f"Lead ID: {lead_id}; "
-                        f"Priority: {priority}; "
-                        f"Score: {lead_score}"
+                    event_type="PRIORITY_SEARCH",
+                    records_affected=len(results),
+                    metadata=f"Priority: {priority}",
+                )
+
+                print(
+                    "\n===== PRIORITY SEARCH RESULTS ====="
+                )
+
+                if results:
+                    for lead in results:
+                        display_lead(
+                            lead
+                        )
+                else:
+                    print(
+                        "No leads found with that priority."
+                    )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Searching leads by priority",
+                )
+
+        # ==================================================
+        # 5. VIEW LEAD BY ID
+        # ==================================================
+
+        elif choice == "5":
+
+            lead_id = input(
+                "Enter lead ID: "
+            ).strip()
+
+            if not lead_id.isdigit():
+                print(
+                    "Invalid lead ID."
+                )
+                continue
+
+            lead_id = int(lead_id)
+
+            if lead_id <= 0:
+                print(
+                    "Lead ID must be greater than 0."
+                )
+                continue
+
+            try:
+                lead = get_lead_by_id(
+                    lead_id
+                )
+
+                if lead:
+                    record_usage(
+                        event_type="LEAD_VIEWED",
+                        metadata=f"Lead ID: {lead_id}",
+                    )
+
+                print(
+                    "\n===== LEAD DETAILS ====="
+                )
+
+                if lead:
+                    display_lead(
+                        lead
+                    )
+                else:
+                    print(
+                        "Lead not found."
+                    )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Retrieving lead by ID",
+                )
+
+        # ==================================================
+        # 6. UPDATE PRIORITY AND SCORE
+        # ==================================================
+
+        elif choice == "6":
+
+            lead_id = input(
+                "Enter lead ID: "
+            ).strip()
+
+            if not lead_id.isdigit():
+                print(
+                    "Invalid lead ID."
+                )
+                continue
+
+            lead_id = int(lead_id)
+
+            if lead_id <= 0:
+                print(
+                    "Lead ID must be greater than 0."
+                )
+                continue
+
+            try:
+                existing_lead = get_lead_by_id(
+                    lead_id
+                )
+
+                if not existing_lead:
+                    print(
+                        "Lead not found."
+                    )
+                    continue
+
+                display_lead(
+                    existing_lead
+                )
+
+                priority = input(
+                    "Enter new priority "
+                    "(LOW, MEDIUM, HIGH): "
+                ).strip().upper()
+
+                valid, message = validate_priority(
+                    priority
+                )
+
+                if not valid:
+                    print(
+                        f"\nInvalid priority: {message}"
+                    )
+                    continue
+
+                score_input = input(
+                    "Enter new lead score (0-100): "
+                ).strip()
+
+                if not score_input.isdigit():
+                    print(
+                        "Lead score must be a number."
+                    )
+                    continue
+
+                lead_score = int(
+                    score_input
+                )
+
+                valid, message = validate_lead_score(
+                    lead_score
+                )
+
+                if not valid:
+                    print(
+                        f"\nInvalid lead score: {message}"
+                    )
+                    continue
+
+                rows_updated = update_lead(
+                    lead_id,
+                    priority,
+                    lead_score,
+                )
+
+                if rows_updated:
+
+                    record_usage(
+                        event_type="LEAD_UPDATED",
+                        records_affected=1,
+                        metadata=(
+                            f"Lead ID: {lead_id}; "
+                            f"Priority: {priority}; "
+                            f"Score: {lead_score}"
+                        ),
+                    )
+
+                    print(
+                        "\nLead updated successfully."
+                    )
+
+                else:
+                    print(
+                        "Lead could not be updated."
+                    )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Updating lead",
+                )
+
+        # ==================================================
+        # 7. UPDATE LEAD STATUS
+        # ==================================================
+
+        elif choice == "7":
+
+            lead_id = input(
+                "Enter lead ID: "
+            ).strip()
+
+            if not lead_id.isdigit():
+                print(
+                    "Invalid lead ID."
+                )
+                continue
+
+            lead_id = int(lead_id)
+
+            if lead_id <= 0:
+                print(
+                    "Lead ID must be greater than 0."
+                )
+                continue
+
+            try:
+                existing_lead = get_lead_by_id(
+                    lead_id
+                )
+
+                if not existing_lead:
+                    print(
+                        "Lead not found."
+                    )
+                    continue
+
+                old_status = existing_lead[16]
+
+                print(
+                    "\nCurrent lead:"
+                )
+
+                display_lead(
+                    existing_lead
+                )
+
+                print(
+                    "\nAvailable statuses:"
+                )
+
+                print(
+                    ", ".join(
+                        ALLOWED_STATUSES
                     )
                 )
 
-                print(
-                    "\nLead updated successfully."
+                status = input(
+                    "Enter new status: "
+                ).strip().upper()
+
+                valid, message = validate_status(
+                    status
                 )
 
-            else:
+                if not valid:
+                    print(
+                        f"\nInvalid status: {message}"
+                    )
+                    continue
 
-                print(
-                    "Lead could not be updated."
+                if status == old_status:
+                    print(
+                        "\nThis lead already has "
+                        f"the status: {status}"
+                    )
+                    continue
+
+                rows_updated = update_lead_status(
+                    lead_id,
+                    status,
                 )
 
-        except Exception as error:
+                if rows_updated:
 
-            handle_error(
-                error,
-                "Updating lead"
-            )
+                    description = (
+                        f"Lead status changed from "
+                        f"{old_status} to {status}."
+                    )
 
-    # ==================================================
-    # 7. UPDATE LEAD STATUS
-    # ==================================================
+                    create_lead_activity(
+                        lead_id,
+                        "STATUS_CHANGED",
+                        description,
+                    )
 
-    elif choice == "7":
+                    record_usage(
+                        event_type="STATUS_CHANGED",
+                        records_affected=1,
+                        metadata=(
+                            f"Lead ID: {lead_id}; "
+                            f"{old_status} -> {status}"
+                        ),
+                    )
 
-        lead_id = input(
-            "Enter lead ID: "
-        ).strip()
+                    print(
+                        "\nLead status updated successfully."
+                    )
 
-        if not lead_id.isdigit():
+                    print(
+                        f"Previous status: {old_status}"
+                    )
 
-            print(
-                "Invalid lead ID."
-            )
+                    print(
+                        f"New status: {status}"
+                    )
 
-            continue
+                    print(
+                        "Activity automatically recorded."
+                    )
 
-        lead_id = int(
-            lead_id
-        )
+                else:
+                    print(
+                        "Lead status could not be updated."
+                    )
 
-        try:
-
-            existing_lead = get_lead_by_id(
-                lead_id
-            )
-
-            if not existing_lead:
-
-                print(
-                    "Lead not found."
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Updating lead status",
                 )
 
-                continue
+        # ==================================================
+        # 8. SEARCH BY STATUS
+        # ==================================================
 
-            old_status = existing_lead[16]
-
-            print(
-                "\nCurrent lead:"
-            )
-
-            display_lead(
-                existing_lead
-            )
+        elif choice == "8":
 
             print(
                 "\nAvailable statuses:"
@@ -1323,7 +1331,7 @@ while True:
             )
 
             status = input(
-                "Enter new status: "
+                "Enter lead status: "
             ).strip().upper()
 
             valid, message = validate_status(
@@ -1331,332 +1339,226 @@ while True:
             )
 
             if not valid:
-
                 print(
                     f"\nInvalid status: {message}"
                 )
-
                 continue
 
-            if status == old_status:
-
-                print(
-                    "\nThis lead already has "
-                    f"the status: {status}"
-                )
-
-                continue
-
-            rows_updated = update_lead_status(
-                lead_id,
-                status
-            )
-
-            if rows_updated:
-
-                description = (
-                    f"Lead status changed from "
-                    f"{old_status} to {status}."
-                )
-
-                create_lead_activity(
-                    lead_id,
-                    "STATUS_CHANGED",
-                    description
+            try:
+                results = search_leads_by_status(
+                    status
                 )
 
                 record_usage(
-                    event_type="STATUS_CHANGED",
-                    records_affected=1,
-                    metadata=(
-                        f"Lead ID: {lead_id}; "
-                        f"{old_status} -> {status}"
-                    )
+                    event_type="STATUS_SEARCH",
+                    records_affected=len(results),
+                    metadata=f"Status: {status}",
                 )
 
                 print(
-                    "\nLead status updated successfully."
+                    f"\n===== {status} LEADS ====="
                 )
 
-                print(
-                    f"Previous status: {old_status}"
-                )
-
-                print(
-                    f"New status: {status}"
-                )
-
-                print(
-                    "Activity automatically recorded."
-                )
-
-            else:
-
-                print(
-                    "Lead status could not be updated."
-                )
-
-        except Exception as error:
-
-            handle_error(
-                error,
-                "Updating lead status"
-            )
-
-    # ==================================================
-    # 8. SEARCH BY STATUS
-    # ==================================================
-
-    elif choice == "8":
-
-        print(
-            "\nAvailable statuses:"
-        )
-
-        print(
-            ", ".join(
-                ALLOWED_STATUSES
-            )
-        )
-
-        status = input(
-            "Enter lead status: "
-        ).strip().upper()
-
-        valid, message = validate_status(
-            status
-        )
-
-        if not valid:
-
-            print(
-                f"\nInvalid status: {message}"
-            )
-
-            continue
-
-        try:
-
-            results = search_leads_by_status(
-                status
-            )
-
-            record_usage(
-                event_type="STATUS_SEARCH",
-                records_affected=len(results),
-                metadata=f"Status: {status}"
-            )
-
-            print(
-                f"\n===== {status} LEADS ====="
-            )
-
-            if results:
-
-                for lead in results:
-
-                    display_lead(
-                        lead
+                if results:
+                    for lead in results:
+                        display_lead(
+                            lead
+                        )
+                else:
+                    print(
+                        f"No leads found with "
+                        f"status: {status}"
                     )
 
-            else:
-
-                print(
-                    f"No leads found with "
-                    f"status: {status}"
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Searching leads by status",
                 )
 
-        except Exception as error:
+        # ==================================================
+        # 9. DELETE LEAD
+        # ==================================================
 
-            handle_error(
-                error,
-                "Searching leads by status"
-            )
+        elif choice == "9":
 
-    # ==================================================
-    # 9. DELETE LEAD
-    # ==================================================
+            lead_id = input(
+                "Enter lead ID to delete: "
+            ).strip()
 
-    elif choice == "9":
-
-        lead_id = input(
-            "Enter lead ID to delete: "
-        ).strip()
-
-        if not lead_id.isdigit():
-
-            print(
-                "Invalid lead ID."
-            )
-
-            continue
-
-        lead_id = int(
-            lead_id
-        )
-
-        try:
-
-            existing_lead = get_lead_by_id(
-                lead_id
-            )
-
-            if not existing_lead:
-
+            if not lead_id.isdigit():
                 print(
-                    "Lead not found."
+                    "Invalid lead ID."
                 )
-
                 continue
 
-            print(
-                "\nLead selected for deletion:"
-            )
+            lead_id = int(lead_id)
 
-            display_lead(
-                existing_lead
-            )
+            if lead_id <= 0:
+                print(
+                    "Lead ID must be greater than 0."
+                )
+                continue
 
-            confirmation = input(
-                "Are you sure you want to "
-                "delete this lead? (yes/no): "
-            ).strip().lower()
-
-            if confirmation == "yes":
-
-                rows_deleted = delete_lead(
+            try:
+                existing_lead = get_lead_by_id(
                     lead_id
                 )
 
-                if rows_deleted:
-
-                    record_usage(
-                        event_type="LEAD_DELETED",
-                        records_affected=1,
-                        metadata=f"Lead ID: {lead_id}"
-                    )
-
+                if not existing_lead:
                     print(
-                        "\nLead deleted successfully."
+                        "Lead not found."
                     )
+                    continue
+
+                print(
+                    "\nLead selected for deletion:"
+                )
+
+                display_lead(
+                    existing_lead
+                )
+
+                confirmation = input(
+                    "Are you sure you want to "
+                    "delete this lead? (yes/no): "
+                ).strip().lower()
+
+                if confirmation == "yes":
+
+                    rows_deleted = delete_lead(
+                        lead_id
+                    )
+
+                    if rows_deleted:
+
+                        record_usage(
+                            event_type="LEAD_DELETED",
+                            records_affected=1,
+                            metadata=f"Lead ID: {lead_id}",
+                        )
+
+                        print(
+                            "\nLead deleted successfully."
+                        )
+
+                    else:
+                        print(
+                            "Lead could not be deleted."
+                        )
 
                 else:
-
                     print(
-                        "Lead could not be deleted."
+                        "Deletion cancelled."
                     )
 
-            else:
-
-                print(
-                    "Deletion cancelled."
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Deleting lead",
                 )
 
-        except Exception as error:
+        # ==================================================
+        # 10. VIEW DASHBOARD
+        # ==================================================
 
-            handle_error(
-                error,
-                "Deleting lead"
-            )
+        elif choice == "10":
+            show_dashboard()
 
-    # ==================================================
-    # 10. VIEW DASHBOARD
-    # ==================================================
+        # ==================================================
+        # 11. VIEW LEAD ACTIVITY HISTORY
+        # ==================================================
 
-    elif choice == "10":
+        elif choice == "11":
 
-        show_dashboard()
+            lead_id = input(
+                "Enter lead ID: "
+            ).strip()
 
-    # ==================================================
-    # 11. VIEW LEAD ACTIVITY HISTORY
-    # ==================================================
-
-    elif choice == "11":
-
-        lead_id = input(
-            "Enter lead ID: "
-        ).strip()
-
-        if not lead_id.isdigit():
-
-            print(
-                "Invalid lead ID."
-            )
-
-            continue
-
-        lead_id = int(
-            lead_id
-        )
-
-        try:
-
-            existing_lead = get_lead_by_id(
-                lead_id
-            )
-
-            if not existing_lead:
-
+            if not lead_id.isdigit():
                 print(
-                    "Lead not found."
+                    "Invalid lead ID."
                 )
-
                 continue
 
+            lead_id = int(lead_id)
+
+            if lead_id <= 0:
+                print(
+                    "Lead ID must be greater than 0."
+                )
+                continue
+
+            try:
+                existing_lead = get_lead_by_id(
+                    lead_id
+                )
+
+                if not existing_lead:
+                    print(
+                        "Lead not found."
+                    )
+                    continue
+
+                print(
+                    "\nLead:"
+                )
+
+                display_lead(
+                    existing_lead
+                )
+
+                show_lead_activities(
+                    lead_id
+                )
+
+            except Exception as error:
+                handle_error(
+                    error,
+                    "Viewing lead activity history",
+                )
+
+        # ==================================================
+        # 12. VIEW IMPORT BATCH HISTORY
+        # ==================================================
+
+        elif choice == "12":
+            show_import_batches()
+
+        # ==================================================
+        # 13. VIEW USAGE ANALYTICS
+        # ==================================================
+
+        elif choice == "13":
+            show_usage_analytics()
+
+        # ==================================================
+        # 14. EXIT
+        # ==================================================
+
+        elif choice == "14":
+
             print(
-                "\nLead:"
+                "\nGoodbye!"
             )
 
-            display_lead(
-                existing_lead
+            break
+
+        # ==================================================
+        # INVALID OPTION
+        # ==================================================
+
+        else:
+
+            print(
+                "\nInvalid option. "
+                "Please choose 1-14."
             )
 
-            show_lead_activities(
-                lead_id
-            )
 
-        except Exception as error:
+# ========================================
+# APPLICATION ENTRY POINT
+# ========================================
 
-            handle_error(
-                error,
-                "Viewing lead activity history"
-            )
-
-    # ==================================================
-    # 12. VIEW IMPORT BATCH HISTORY
-    # ==================================================
-
-    elif choice == "12":
-
-        show_import_batches()
-
-    # ==================================================
-    # 13. VIEW USAGE ANALYTICS
-    # ==================================================
-
-    elif choice == "13":
-
-        show_usage_analytics()
-
-    # ==================================================
-    # 14. EXIT
-    # ==================================================
-
-    elif choice == "14":
-
-        print(
-            "\nGoodbye!"
-        )
-
-        break
-
-    # ==================================================
-    # INVALID OPTION
-    # ==================================================
-
-    else:
-
-        print(
-            "\nInvalid option. "
-            "Please choose 1-14."
-        )
+if __name__ == "__main__":
+    main()
