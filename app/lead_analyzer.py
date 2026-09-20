@@ -88,7 +88,6 @@ def clean_json_response(content):
 
     content = content.strip()
 
-    # Remove markdown code fences.
     content = re.sub(
         r"^```(?:json)?\s*",
         "",
@@ -105,8 +104,6 @@ def clean_json_response(content):
 
     content = content.strip()
 
-    # Handle cases where the model places additional
-    # text before or after the JSON object.
     if not content.startswith("{"):
         json_start = content.find("{")
 
@@ -241,44 +238,169 @@ def validate_analysis(analysis):
 
 def build_analysis_prompt(lead):
     """
-    Build the prompt used to analyze a CRM lead.
+    Build a structured prompt focused on extracting
+    evidence directly from the customer's message.
     """
 
     return f"""
-Analyze the following customer lead.
+You are a CRM lead-analysis system.
 
-Customer:
-Name: {lead.get("name", "Unknown")}
-Email: {lead.get("email", "Unknown")}
-Phone: {lead.get("phone", "Unknown")}
-Company: {lead.get("company", "Unknown")}
-Message: {lead.get("message", "Unknown")}
+Your job is to extract facts from the customer's message
+and classify the lead based ONLY on the information provided.
 
-Return ONLY valid JSON using exactly this structure:
+CUSTOMER INFORMATION
+
+Name:
+{lead.get("name", "Unknown")}
+
+Email:
+{lead.get("email", "Unknown")}
+
+Phone:
+{lead.get("phone", "Unknown")}
+
+Company:
+{lead.get("company", "Unknown")}
+
+CUSTOMER MESSAGE:
+{lead.get("message", "Unknown")}
+
+
+IMPORTANT EXTRACTION RULES
+
+1. PRODUCT
+Identify the actual product, service, or item the customer
+is asking about.
+
+Look directly at the CUSTOMER MESSAGE.
+
+Example:
+"We need 20 office chairs for our new office."
+
+Correct:
+"product": "Office chairs"
+
+Incorrect:
+"product": "Unknown"
+
+Only use "Unknown" when no product or service can reasonably
+be identified from the message.
+
+2. QUANTITY
+Extract the number of units requested.
+
+Example:
+"We need 20 office chairs."
+
+Correct:
+"quantity": 20
+
+If no quantity is stated, use 0.
+
+3. TIMELINE
+Extract any delivery, purchase, project, or decision timeline.
+
+Example:
+"delivery within two weeks"
+
+Correct:
+"timeline": "Within two weeks"
+
+If no timeline is stated, use "Unknown".
+
+4. INTENT
+Determine what the customer is trying to do.
+
+Examples:
+- asking to buy something → "Purchase"
+- asking for pricing → "Pricing Inquiry"
+- asking for information → "Information"
+- asking for support → "Support"
+- just researching → "Research"
+
+5. LEAD TYPE
+Classify the business purpose of the lead.
+
+Examples:
+- purchasing a product → "Sales"
+- requesting support → "Support"
+- partnership request → "Partnership"
+- general inquiry → "Inquiry"
+
+6. PRIORITY
+
+Use the customer's actual urgency and buying intent.
+
+HIGH:
+- urgent or near-term purchase
+- large quantity
+- explicit short deadline
+- strong buying intent
+- multiple urgency signals
+
+MEDIUM:
+- clear interest or purchase intent
+- but no strong urgency
+- moderate quantity or timeline
+
+LOW:
+- general information
+- early research
+- weak buying intent
+- no meaningful urgency
+
+7. LEAD SCORE
+
+Give a meaningful score from 0 to 100.
+
+Consider:
+- buying intent
+- urgency
+- quantity
+- timeline
+- clarity of request
+
+Examples:
+
+Strong purchase request with quantity and short deadline:
+70-95
+
+Clear interest but no strong urgency:
+40-69
+
+General inquiry or early research:
+10-39
+
+Do NOT automatically use 0 unless there is essentially
+no meaningful lead information.
+
+8. SUMMARY
+Write a short factual summary using only information
+from the customer's message.
+
+DO NOT invent facts.
+
+
+RETURN ONLY VALID JSON.
+
+Use exactly this structure:
 
 {{
     "lead_type": "Sales",
     "intent": "Purchase",
-    "product": "Unknown",
-    "quantity": 0,
-    "timeline": "Unknown",
-    "priority": "LOW",
-    "lead_score": 0,
-    "summary": "Short summary of the lead."
+    "product": "Office chairs",
+    "quantity": 20,
+    "timeline": "Within two weeks",
+    "priority": "HIGH",
+    "lead_score": 85,
+    "summary": "Customer requests 20 office chairs with delivery within two weeks."
 }}
 
-Rules:
+The example values above are ONLY examples of the format.
+Do not copy them unless they are supported by the actual
+customer message.
 
-- lead_type should describe the type of lead.
-- intent should describe what the customer wants.
-- product should identify the requested product.
-- quantity must be a number.
-- timeline should identify any stated timeline, otherwise "Unknown".
-- priority must be LOW, MEDIUM, or HIGH.
-- lead_score must be between 0 and 100.
-- summary should briefly explain the customer's request.
-- Do not invent information that is not present.
-- Return JSON only.
+Return JSON only.
 """
 
 
@@ -311,7 +433,7 @@ def request_ai_analysis(prompt):
                 "content": prompt,
             }
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "top_p": 0.7,
         "max_tokens": 1000,
         "stream": False,
@@ -391,19 +513,14 @@ def analyze_lead(lead):
     lead-analysis dictionary.
     """
 
-    # Validate input.
     validate_lead_input(lead)
 
-    # Build prompt.
     prompt = build_analysis_prompt(lead)
 
-    # Send request.
     content = request_ai_analysis(prompt)
 
-    # Clean AI response.
     cleaned_content = clean_json_response(content)
 
-    # Parse JSON.
     try:
         analysis = json.loads(
             cleaned_content
@@ -414,7 +531,6 @@ def analyze_lead(lead):
             f"AI returned invalid JSON: {error}"
         )
 
-    # Validate and normalize result.
     return validate_analysis(analysis)
 
 
@@ -426,18 +542,6 @@ def analyze_and_save_lead(lead_id, lead):
     """
     Analyze an existing CRM lead using NVIDIA's API
     and save the validated analysis to SQLite.
-
-    Flow:
-
-        Lead
-          ↓
-        NVIDIA AI
-          ↓
-        JSON parsing
-          ↓
-        Validation
-          ↓
-        SQLite
     """
 
     if not isinstance(lead_id, int) or isinstance(lead_id, bool):
@@ -450,12 +554,8 @@ def analyze_and_save_lead(lead_id, lead):
             "Lead ID must be greater than zero."
         )
 
-    # analyze_lead() validates the lead,
-    # calls NVIDIA, parses the response,
-    # and validates the AI output.
     analysis = analyze_lead(lead)
 
-    # Only validated analysis reaches the database.
     saved = save_lead_analysis(
         lead_id,
         analysis,
