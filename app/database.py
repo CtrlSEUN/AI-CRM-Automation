@@ -15,6 +15,12 @@ ALLOWED_STATUSES = {
     "LOST"
 }
 
+ALLOWED_PRIORITIES = {
+    "LOW",
+    "MEDIUM",
+    "HIGH"
+}
+
 
 def get_connection():
     """
@@ -228,6 +234,143 @@ def insert_lead(lead):
         conn.commit()
 
         return lead_id
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+def save_lead_analysis(lead_id, analysis):
+    """
+    Save validated AI analysis results to an existing lead.
+
+    The update is atomic:
+    - Either all AI analysis fields and the activity record are saved.
+    - Or nothing is saved.
+
+    The AI response must already be validated before reaching this function.
+    Database-level validation is still performed as a safety boundary.
+    """
+
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positive integer.")
+
+    if not isinstance(analysis, dict):
+        raise TypeError("analysis must be a dictionary.")
+
+    required_fields = {
+        "lead_type",
+        "intent",
+        "product",
+        "quantity",
+        "timeline",
+        "priority",
+        "lead_score",
+        "summary"
+    }
+
+    missing_fields = required_fields - set(analysis.keys())
+
+    if missing_fields:
+        raise ValueError(
+            f"Missing required AI analysis fields: {sorted(missing_fields)}"
+        )
+
+    priority = str(analysis.get("priority") or "").strip().upper()
+
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(
+            f"Invalid AI priority. Allowed values: "
+            f"{sorted(ALLOWED_PRIORITIES)}"
+        )
+
+    lead_score = analysis.get("lead_score")
+
+    if isinstance(lead_score, bool) or not isinstance(lead_score, int):
+        raise TypeError("AI lead_score must be an integer.")
+
+    if not 0 <= lead_score <= 100:
+        raise ValueError("AI lead_score must be between 0 and 100.")
+
+    quantity = analysis.get("quantity")
+
+    if isinstance(quantity, bool):
+        raise TypeError("AI quantity must be an integer or None.")
+
+    if quantity is not None and not isinstance(quantity, int):
+        raise TypeError("AI quantity must be an integer or None.")
+
+    if quantity is not None and quantity < 0:
+        raise ValueError("AI quantity cannot be negative.")
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id
+            FROM leads
+            WHERE id = ?
+        """, (lead_id,))
+
+        existing_lead = cursor.fetchone()
+
+        if not existing_lead:
+            conn.rollback()
+            return False
+
+        cursor.execute("""
+            UPDATE leads
+            SET
+                lead_type = ?,
+                intent = ?,
+                product = ?,
+                quantity = ?,
+                timeline = ?,
+                priority = ?,
+                lead_score = ?,
+                summary = ?
+            WHERE id = ?
+        """, (
+            analysis.get("lead_type"),
+            analysis.get("intent"),
+            analysis.get("product"),
+            quantity,
+            analysis.get("timeline"),
+            priority,
+            lead_score,
+            analysis.get("summary"),
+            lead_id
+        ))
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return False
+
+        cursor.execute("""
+            INSERT INTO lead_activities (
+                lead_id,
+                activity_type,
+                description
+            )
+            VALUES (?, ?, ?)
+        """, (
+            lead_id,
+            "AI_ANALYSIS_UPDATED",
+            (
+                f"AI analysis saved. "
+                f"Priority: {priority}, "
+                f"Score: {lead_score}."
+            )
+        ))
+
+        conn.commit()
+
+        return True
 
     except Exception:
         conn.rollback()

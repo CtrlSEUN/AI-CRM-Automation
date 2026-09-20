@@ -5,6 +5,8 @@ import re
 import requests
 from dotenv import load_dotenv
 
+from app.database import save_lead_analysis
+
 
 # ==========================================
 # LOAD ENVIRONMENT VARIABLES
@@ -414,3 +416,54 @@ def analyze_lead(lead):
 
     # Validate and normalize result.
     return validate_analysis(analysis)
+
+
+# ==========================================
+# AI ANALYSIS + DATABASE INTEGRATION
+# ==========================================
+
+def analyze_and_save_lead(lead_id, lead):
+    """
+    Analyze an existing CRM lead using NVIDIA's API
+    and save the validated analysis to SQLite.
+
+    Flow:
+
+        Lead
+          ↓
+        NVIDIA AI
+          ↓
+        JSON parsing
+          ↓
+        Validation
+          ↓
+        SQLite
+    """
+
+    if not isinstance(lead_id, int) or isinstance(lead_id, bool):
+        raise ValueError(
+            "Lead ID must be an integer."
+        )
+
+    if lead_id <= 0:
+        raise ValueError(
+            "Lead ID must be greater than zero."
+        )
+
+    # analyze_lead() validates the lead,
+    # calls NVIDIA, parses the response,
+    # and validates the AI output.
+    analysis = analyze_lead(lead)
+
+    # Only validated analysis reaches the database.
+    saved = save_lead_analysis(
+        lead_id,
+        analysis,
+    )
+
+    if not saved:
+        raise RuntimeError(
+            f"Could not save AI analysis for Lead ID {lead_id}."
+        )
+
+    return analysis
