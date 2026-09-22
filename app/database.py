@@ -170,6 +170,26 @@ def insert_lead(lead):
             f"Invalid status. Allowed values: {sorted(ALLOWED_STATUSES)}"
         )
 
+    priority = lead.get("priority")
+
+    if priority is not None:
+        priority = str(priority).strip().upper()
+
+        if priority not in ALLOWED_PRIORITIES:
+            raise ValueError(
+                f"Invalid priority. Allowed values: "
+                f"{sorted(ALLOWED_PRIORITIES)}"
+            )
+
+    lead_score = lead.get("lead_score")
+
+    if lead_score is not None:
+        if isinstance(lead_score, bool) or not isinstance(lead_score, int):
+            raise TypeError("lead_score must be an integer.")
+
+        if not 0 <= lead_score <= 100:
+            raise ValueError("lead_score must be between 0 and 100.")
+
     conn = get_connection()
 
     try:
@@ -209,8 +229,8 @@ def insert_lead(lead):
             lead.get("product"),
             lead.get("quantity"),
             lead.get("timeline"),
-            lead.get("priority"),
-            lead.get("lead_score"),
+            priority,
+            lead_score,
             lead.get("summary"),
             status,
             lead.get("import_batch_id")
@@ -426,7 +446,13 @@ def import_clean_leads(
     Import CLEAN + UNIQUE rows into the CRM.
 
     Exact email duplicates are skipped.
-    Fuzzy duplicate matches are imported but flagged for review.
+
+    HIGH-confidence duplicate matches are imported and flagged.
+
+    MEDIUM-confidence REVIEW matches are also imported and flagged
+    for human review.
+
+    UNIQUE records are imported normally.
     """
 
     if clean_dataframe is None:
@@ -493,6 +519,7 @@ def import_clean_leads(
                 "skipped": len(clean_rows),
                 "existing_duplicates": 0,
                 "possible_duplicates": 0,
+                "review_required": 0,
                 "already_imported": True,
                 "batch_id": existing_batch[0]
             }
@@ -534,6 +561,7 @@ def import_clean_leads(
         skipped_count = 0
         existing_duplicate_count = 0
         possible_duplicate_count = 0
+        review_required_count = 0
 
         for _, row in clean_rows.iterrows():
 
@@ -577,7 +605,19 @@ def import_clean_leads(
                 skipped_count += 1
                 continue
 
-            existing_by_email = get_lead_by_email(email)
+            cursor.execute("""
+                SELECT
+                    id,
+                    name,
+                    email,
+                    phone,
+                    company
+                FROM leads
+                WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+                LIMIT 1
+            """, (email,))
+
+            existing_by_email = cursor.fetchone()
 
             if existing_by_email:
                 existing_duplicate_count += 1
@@ -593,6 +633,7 @@ def import_clean_leads(
 
             duplicate_flag = 0
             duplicate_reason = None
+            duplicate_activity_type = None
 
             for existing_lead in existing_leads:
 
@@ -608,18 +649,42 @@ def import_clean_leads(
                     existing_record
                 )
 
-                if duplicate_result["status"] == "DUPLICATE":
+                result_status = duplicate_result.get("status")
+                confidence = duplicate_result.get("confidence")
+                reason = duplicate_result.get("reason")
+
+                if result_status == "DUPLICATE":
 
                     duplicate_flag = 1
 
                     duplicate_reason = (
                         f"Possible existing lead "
                         f"(Lead ID {existing_lead[0]}): "
-                        f"{duplicate_result['reason']} "
-                        f"Confidence: {duplicate_result['confidence']}"
+                        f"{reason} "
+                        f"Confidence: {confidence}"
                     )
 
+                    duplicate_activity_type = "DUPLICATE_REVIEW"
+
                     possible_duplicate_count += 1
+
+                    break
+
+                if result_status == "REVIEW":
+
+                    duplicate_flag = 1
+
+                    duplicate_reason = (
+                        f"Manual duplicate review required "
+                        f"(Lead ID {existing_lead[0]}): "
+                        f"{reason} "
+                        f"Confidence: {confidence}"
+                    )
+
+                    duplicate_activity_type = "DUPLICATE_REVIEW"
+
+                    review_required_count += 1
+
                     break
 
             status = row.get("status", "NEW")
@@ -631,6 +696,26 @@ def import_clean_leads(
 
             if status not in ALLOWED_STATUSES:
                 status = "NEW"
+
+            priority = row.get("priority")
+
+            if priority is not None:
+                priority = str(priority).strip().upper()
+
+                if priority not in ALLOWED_PRIORITIES:
+                    priority = None
+
+            lead_score = row.get("lead_score")
+
+            if lead_score is not None:
+
+                try:
+                    lead_score = int(lead_score)
+                except (TypeError, ValueError):
+                    lead_score = None
+
+                if lead_score is not None:
+                    lead_score = max(0, min(100, lead_score))
 
             cursor.execute("""
                 INSERT INTO leads (
@@ -666,8 +751,8 @@ def import_clean_leads(
                 row.get("product"),
                 row.get("quantity"),
                 row.get("timeline"),
-                row.get("priority"),
-                row.get("lead_score"),
+                priority,
+                lead_score,
                 row.get("summary"),
                 status,
                 batch_id
@@ -688,7 +773,7 @@ def import_clean_leads(
                 "Lead was added to the CRM."
             ))
 
-            if duplicate_flag:
+            if duplicate_flag and duplicate_activity_type:
 
                 cursor.execute("""
                     INSERT INTO lead_activities (
@@ -699,7 +784,7 @@ def import_clean_leads(
                     VALUES (?, ?, ?)
                 """, (
                     lead_id,
-                    "DUPLICATE_REVIEW",
+                    duplicate_activity_type,
                     duplicate_reason
                 ))
 
@@ -732,6 +817,7 @@ def import_clean_leads(
             "skipped": skipped_count,
             "existing_duplicates": existing_duplicate_count,
             "possible_duplicates": possible_duplicate_count,
+            "review_required": review_required_count,
             "already_imported": False,
             "batch_id": batch_id
         }
@@ -988,6 +1074,20 @@ def get_all_import_batch_stats():
 def update_lead(lead_id, priority, lead_score):
     if not isinstance(lead_id, int) or lead_id <= 0:
         raise ValueError("lead_id must be a positive integer.")
+
+    priority = str(priority or "").strip().upper()
+
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(
+            f"Invalid priority. Allowed values: "
+            f"{sorted(ALLOWED_PRIORITIES)}"
+        )
+
+    if isinstance(lead_score, bool) or not isinstance(lead_score, int):
+        raise TypeError("lead_score must be an integer.")
+
+    if not 0 <= lead_score <= 100:
+        raise ValueError("lead_score must be between 0 and 100.")
 
     conn = get_connection()
 

@@ -34,7 +34,7 @@ from app.database import (
 
 from app.lead_cleaner import clean_lead
 from app.lead_analyzer import analyze_lead
-from app.duplicate_detector import is_potential_duplicate
+from app.duplicate_detector import detect_duplicate
 
 
 # ========================================
@@ -135,10 +135,29 @@ def display_lead(lead):
     print(f"Status: {lead[16]}")
 
     if lead[6]:
-        print("Duplicate: YES")
-        print(f"Duplicate Reason: {lead[7]}")
+        duplicate_reason = str(
+            lead[7] or ""
+        )
+
+        if duplicate_reason.startswith(
+            "Manual duplicate review required"
+        ):
+            print(
+                "Duplicate Status: REVIEW REQUIRED"
+            )
+        else:
+            print(
+                "Duplicate Status: CONFIRMED DUPLICATE"
+            )
+
+        print(
+            f"Duplicate Reason: {duplicate_reason}"
+        )
+
     else:
-        print("Duplicate: NO")
+        print(
+            "Duplicate Status: UNIQUE"
+        )
 
     print("----------------------------------------")
 
@@ -195,7 +214,14 @@ def validate_status(status):
 # ========================================
 
 def check_for_duplicate(cleaned_lead):
-    """Compare a new lead against existing CRM leads."""
+    """
+    Compare a new lead against existing CRM leads.
+
+    Returns:
+        duplicate: True/False
+        reason: explanation of the match
+        status: DUPLICATE / REVIEW / UNIQUE
+    """
 
     existing_leads = get_all_leads()
 
@@ -212,15 +238,32 @@ def check_for_duplicate(cleaned_lead):
             "message": existing_lead[5],
         }
 
-        duplicate, reason = is_potential_duplicate(
+        result = detect_duplicate(
             cleaned_lead,
             existing_lead_data,
         )
 
-        if duplicate:
-            return True, reason
+        status = result.get(
+            "status",
+            "UNIQUE",
+        )
 
-    return False, "No obvious duplicate match"
+        reason = result.get(
+            "reason",
+            "No obvious duplicate match",
+        )
+
+        if status == "DUPLICATE":
+            return True, reason, "DUPLICATE"
+
+        if status == "REVIEW":
+            return True, reason, "REVIEW"
+
+    return (
+        False,
+        "No obvious duplicate match",
+        "UNIQUE",
+    )
 
 
 # ========================================
@@ -770,19 +813,27 @@ def main():
             )
 
             try:
-                duplicate, duplicate_reason = (
-                    check_for_duplicate(
-                        cleaned_lead
-                    )
+                (
+                    duplicate,
+                    duplicate_reason,
+                    duplicate_status,
+                ) = check_for_duplicate(
+                    cleaned_lead
                 )
 
-                if duplicate:
+                if duplicate_status == "DUPLICATE":
                     print(
-                        "Potential duplicate: YES"
+                        "Duplicate status: CONFIRMED DUPLICATE"
                     )
+
+                elif duplicate_status == "REVIEW":
+                    print(
+                        "Duplicate status: REVIEW REQUIRED"
+                    )
+
                 else:
                     print(
-                        "Potential duplicate: NO"
+                        "Duplicate status: UNIQUE"
                     )
 
                 print(
