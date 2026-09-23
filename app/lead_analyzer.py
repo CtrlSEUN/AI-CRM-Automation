@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -37,6 +38,11 @@ REQUIRED_FIELDS = [
     "lead_score",
     "summary",
 ]
+
+# API reliability settings
+MAX_API_ATTEMPTS = 3
+API_TIMEOUT = 120
+RETRY_DELAY_SECONDS = 3
 
 
 # ==========================================
@@ -410,8 +416,10 @@ Return JSON only.
 
 def request_ai_analysis(prompt):
     """
-    Send an analysis request to NVIDIA's API
-    and return the raw structured response.
+    Send an analysis request to NVIDIA's API.
+
+    Retries temporary timeout and connection failures
+    without affecting the CRM database.
     """
 
     if not NVIDIA_API_KEY:
@@ -439,66 +447,170 @@ def request_ai_analysis(prompt):
         "stream": False,
     }
 
-    try:
-        response = requests.post(
-            INVOKE_URL,
-            headers=headers,
-            json=payload,
-            timeout=120,
-        )
+    last_error = None
 
-    except requests.exceptions.Timeout:
-        raise RuntimeError(
-            "NVIDIA API request timed out."
-        )
+    for attempt in range(1, MAX_API_ATTEMPTS + 1):
 
-    except requests.exceptions.ConnectionError:
-        raise RuntimeError(
-            "Could not connect to the NVIDIA API."
-        )
+        try:
+            print(
+                f"\nNVIDIA API attempt "
+                f"{attempt}/{MAX_API_ATTEMPTS}..."
+            )
 
-    except requests.exceptions.RequestException as error:
-        raise RuntimeError(
-            f"NVIDIA API request failed: {error}"
-        )
+            response = requests.post(
+                INVOKE_URL,
+                headers=headers,
+                json=payload,
+                timeout=API_TIMEOUT,
+            )
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            "NVIDIA API returned HTTP "
-            f"{response.status_code}: {response.text}"
-        )
+            # --------------------------------------
+            # Temporary server/rate-limit errors
+            # --------------------------------------
 
-    try:
-        result = response.json()
+            if response.status_code in {
+                429,
+                500,
+                502,
+                503,
+                504,
+            }:
 
-    except ValueError:
-        raise RuntimeError(
-            "NVIDIA API returned an invalid JSON response."
-        )
+                last_error = RuntimeError(
+                    "NVIDIA API returned HTTP "
+                    f"{response.status_code}: {response.text}"
+                )
 
-    if "choices" not in result:
-        raise RuntimeError(
-            "NVIDIA API response does not contain 'choices'."
-        )
+                if attempt < MAX_API_ATTEMPTS:
+                    print(
+                        "Temporary NVIDIA API error."
+                    )
+                    print(
+                        f"Retrying in {RETRY_DELAY_SECONDS} seconds..."
+                    )
 
-    if not result["choices"]:
-        raise RuntimeError(
-            "NVIDIA API returned an empty choices list."
-        )
+                    time.sleep(
+                        RETRY_DELAY_SECONDS
+                    )
 
-    message = result["choices"][0].get(
-        "message",
-        {},
+                    continue
+
+                raise last_error
+
+            # --------------------------------------
+            # Other HTTP errors
+            # --------------------------------------
+
+            if response.status_code != 200:
+                raise RuntimeError(
+                    "NVIDIA API returned HTTP "
+                    f"{response.status_code}: {response.text}"
+                )
+
+            # --------------------------------------
+            # Parse JSON
+            # --------------------------------------
+
+            try:
+                result = response.json()
+
+            except ValueError:
+                raise RuntimeError(
+                    "NVIDIA API returned an invalid JSON response."
+                )
+
+            # --------------------------------------
+            # Validate choices
+            # --------------------------------------
+
+            if "choices" not in result:
+                raise RuntimeError(
+                    "NVIDIA API response does not contain 'choices'."
+                )
+
+            if not result["choices"]:
+                raise RuntimeError(
+                    "NVIDIA API returned an empty choices list."
+                )
+
+            message = result["choices"][0].get(
+                "message",
+                {},
+            )
+
+            content = message.get("content")
+
+            if not content:
+                raise RuntimeError(
+                    "NVIDIA API returned empty content."
+                )
+
+            print(
+                "NVIDIA API response received successfully."
+            )
+
+            return content
+
+        except requests.exceptions.Timeout as error:
+
+            last_error = error
+
+            print(
+                f"NVIDIA API timed out on attempt {attempt}."
+            )
+
+            if attempt < MAX_API_ATTEMPTS:
+                print(
+                    f"Retrying in {RETRY_DELAY_SECONDS} seconds..."
+                )
+
+                time.sleep(
+                    RETRY_DELAY_SECONDS
+                )
+
+                continue
+
+            raise RuntimeError(
+                "NVIDIA API request timed out after "
+                f"{MAX_API_ATTEMPTS} attempts."
+            )
+
+        except requests.exceptions.ConnectionError as error:
+
+            last_error = error
+
+            print(
+                f"Could not connect to NVIDIA API "
+                f"on attempt {attempt}."
+            )
+
+            if attempt < MAX_API_ATTEMPTS:
+                print(
+                    f"Retrying in {RETRY_DELAY_SECONDS} seconds..."
+                )
+
+                time.sleep(
+                    RETRY_DELAY_SECONDS
+                )
+
+                continue
+
+            raise RuntimeError(
+                "Could not connect to the NVIDIA API "
+                f"after {MAX_API_ATTEMPTS} attempts."
+            )
+
+        except requests.exceptions.RequestException as error:
+
+            last_error = error
+
+            raise RuntimeError(
+                f"NVIDIA API request failed: {error}"
+            )
+
+    raise RuntimeError(
+        f"NVIDIA API request failed: {last_error}"
     )
-
-    content = message.get("content")
-
-    if not content:
-        raise RuntimeError(
-            "NVIDIA API returned empty content."
-        )
-
-    return content
 
 
 # ==========================================
