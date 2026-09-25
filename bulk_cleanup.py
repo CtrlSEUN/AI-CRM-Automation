@@ -14,7 +14,6 @@ from app.duplicate_detector import (
     detect_duplicate,
 )
 
-# DAY 21 — SQLITE IMPORT BATCH TRACKING
 from app.database import (
     import_clean_leads,
 )
@@ -59,7 +58,6 @@ def sanitize_folder_name(value):
         value = value.replace(character, "_")
 
     value = " ".join(value.split())
-
     value = value.replace(" ", "_")
 
     return value[:100]
@@ -258,13 +256,11 @@ def standardize_phone(phone, country):
     """
 
     if pd.isna(phone):
-
         return ""
 
     phone = str(phone).strip()
 
     if not phone:
-
         return ""
 
     country = str(country).strip().upper()
@@ -412,7 +408,6 @@ def validate_dataset(dataframe):
     dataframe = dataframe.copy()
 
     dataframe["validation_status"] = "CLEAN"
-
     dataframe["validation_issues"] = ""
 
     for index, row in dataframe.iterrows():
@@ -581,33 +576,38 @@ def show_validation_results(dataframe):
 
 def detect_duplicates(dataframe):
     """
-    Detect duplicate and possible duplicate CRM
-    records using fuzzy matching and confidence scoring.
+    Detect duplicate CRM records using fuzzy
+    matching and confidence scoring.
+
+    Decision model:
+
+    HIGH confidence
+        -> DUPLICATE
+
+    MEDIUM confidence
+        -> REVIEW
+
+    LOW / no meaningful match
+        -> UNIQUE
 
     Records are flagged, not deleted.
 
     Each record is compared against every other
     record in the dataset.
 
-    The strongest match is kept.
+    The strongest meaningful match is kept.
     """
 
     dataframe = dataframe.copy()
 
     dataframe["duplicate_status"] = "UNIQUE"
-
     dataframe["duplicate_confidence"] = "UNIQUE"
-
     dataframe["duplicate_reason"] = ""
-
     dataframe["matched_record"] = ""
 
     dataframe["name_similarity"] = 0.0
-
     dataframe["company_similarity"] = 0.0
-
     dataframe["email_similarity"] = 0.0
-
     dataframe["phone_similarity"] = 0.0
 
     best_matches = {}
@@ -617,13 +617,11 @@ def detect_duplicates(dataframe):
         current_record = row.to_dict()
 
         best_match = None
-
-        best_priority = -1
+        best_match_strength = -1
 
         for other_index, other_row in dataframe.iterrows():
 
             if index == other_index:
-
                 continue
 
             other_record = other_row.to_dict()
@@ -634,22 +632,29 @@ def detect_duplicates(dataframe):
             )
 
             status = result["status"]
-
             confidence = result["confidence"]
-
             scores = result["scores"]
+
+            # --------------------------------
+            # DUPLICATE DECISION PRIORITY
+            # --------------------------------
 
             if status == "DUPLICATE":
 
                 priority = 3
 
-            elif status == "POSSIBLE DUPLICATE":
+            elif status == "REVIEW":
 
                 priority = 2
 
             else:
 
-                priority = 1
+                # UNIQUE comparisons are not
+                # meaningful candidate matches.
+                priority = 0
+
+            if priority == 0:
+                continue
 
             score_values = [
                 scores["name_score"],
@@ -667,9 +672,11 @@ def detect_duplicates(dataframe):
                 + strongest_score
             )
 
-            if match_strength > best_priority:
+            if match_strength > best_match_strength:
 
-                best_priority = match_strength
+                best_match_strength = (
+                    match_strength
+                )
 
                 best_match = {
                     "index": other_index,
@@ -681,17 +688,20 @@ def detect_duplicates(dataframe):
 
         best_matches[index] = best_match
 
+    # ------------------------------------
+    # APPLY BEST MATCHES
+    # ------------------------------------
+
     for index, match in best_matches.items():
 
         if match is None:
-
             continue
 
         status = match["status"]
 
         if status in [
             "DUPLICATE",
-            "POSSIBLE DUPLICATE"
+            "REVIEW"
         ]:
 
             dataframe.at[
@@ -713,8 +723,7 @@ def detect_duplicates(dataframe):
                 index,
                 "matched_record"
             ] = (
-                f"Record "
-                f"{match['index'] + 1}"
+                f"Record {match['index'] + 1}"
             )
 
             dataframe.at[
@@ -755,6 +764,20 @@ def show_duplicate_results(dataframe):
 
     for index, row in dataframe.iterrows():
 
+        status = row["duplicate_status"]
+
+        if status == "DUPLICATE":
+
+            display_status = "CONFIRMED DUPLICATE"
+
+        elif status == "REVIEW":
+
+            display_status = "REVIEW REQUIRED"
+
+        else:
+
+            display_status = "UNIQUE"
+
         print(
             f"\nRecord {index + 1}: "
             f"{row.get('name', '')}"
@@ -772,7 +795,7 @@ def show_duplicate_results(dataframe):
 
         print(
             f"Status: "
-            f"{row['duplicate_status']}"
+            f"{display_status}"
         )
 
         print(
@@ -790,7 +813,7 @@ def show_duplicate_results(dataframe):
             f"{row['matched_record'] or 'None'}"
         )
 
-        if row["duplicate_status"] != "UNIQUE":
+        if status != "UNIQUE":
 
             print(
                 f"Name similarity: "
@@ -823,8 +846,10 @@ def calculate_duplicate_groups(dataframe):
     """
     Calculate actual confirmed duplicate groups.
 
-    A duplicate group is a connected set of records
-    linked by confirmed duplicate relationships.
+    Only DUPLICATE records are included.
+
+    REVIEW records are intentionally excluded because
+    they require human confirmation first.
     """
 
     duplicate_rows = dataframe[
@@ -850,7 +875,6 @@ def calculate_duplicate_groups(dataframe):
     def union(first, second):
 
         first_root = find(first)
-
         second_root = find(second)
 
         if first_root != second_root:
@@ -879,13 +903,11 @@ def calculate_duplicate_groups(dataframe):
         ).strip()
 
         if not matched_record:
-
             continue
 
         if not matched_record.startswith(
             "Record "
         ):
-
             continue
 
         try:
@@ -934,6 +956,17 @@ def calculate_duplicate_groups(dataframe):
 def calculate_quality_metrics(dataframe):
     """
     Calculate business-level data quality statistics.
+
+    review_records:
+        Validation issues only.
+
+    possible_duplicate_records:
+        REVIEW duplicate matches requiring
+        human review.
+
+    The key name possible_duplicate_records is
+    retained for backward compatibility with
+    existing reports and integrations.
     """
 
     total_records = len(dataframe)
@@ -953,9 +986,14 @@ def calculate_quality_metrics(dataframe):
             "invalid_phone": 0,
             "missing_phone": 0,
             "validation_issue_records": 0,
+            "duplicate_review_records": 0,
             "duplicate_groups": 0,
             "data_quality_score": 0.0,
         }
+
+    # ------------------------------------
+    # VALIDATION REVIEW
+    # ------------------------------------
 
     review_records = int(
         (
@@ -964,6 +1002,10 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
+    # ------------------------------------
+    # CONFIRMED DUPLICATES
+    # ------------------------------------
+
     duplicate_records = int(
         (
             dataframe["duplicate_status"]
@@ -971,12 +1013,20 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
+    # ------------------------------------
+    # DUPLICATES REQUIRING REVIEW
+    # ------------------------------------
+
     possible_duplicate_records = int(
         (
             dataframe["duplicate_status"]
-            == "POSSIBLE DUPLICATE"
+            == "REVIEW"
         ).sum()
     )
+
+    # ------------------------------------
+    # UNIQUE RECORDS
+    # ------------------------------------
 
     unique_records = int(
         (
@@ -985,6 +1035,10 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
+    # ------------------------------------
+    # CLEAN RECORDS
+    # ------------------------------------
+
     clean_records = int(
         (
             (dataframe["validation_status"] == "CLEAN")
@@ -992,6 +1046,10 @@ def calculate_quality_metrics(dataframe):
             (dataframe["duplicate_status"] == "UNIQUE")
         ).sum()
     )
+
+    # ------------------------------------
+    # VALIDATION ISSUES
+    # ------------------------------------
 
     issues = (
         dataframe["validation_issues"]
@@ -1037,9 +1095,17 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
+    # ------------------------------------
+    # DUPLICATE GROUPS
+    # ------------------------------------
+
     duplicate_groups = calculate_duplicate_groups(
         dataframe
     )
+
+    # ------------------------------------
+    # OVERALL CLEAN DATA SCORE
+    # ------------------------------------
 
     data_quality_score = (
         clean_records / total_records
@@ -1050,15 +1116,27 @@ def calculate_quality_metrics(dataframe):
         "clean_records": clean_records,
         "review_records": review_records,
         "duplicate_records": duplicate_records,
-        "possible_duplicate_records": possible_duplicate_records,
+
+        # Backward-compatible metric name.
+        "possible_duplicate_records":
+            possible_duplicate_records,
+
         "unique_records": unique_records,
         "missing_name": missing_name,
         "missing_email": missing_email,
         "invalid_email": invalid_email,
         "invalid_phone": invalid_phone,
         "missing_phone": missing_phone,
-        "validation_issue_records": review_records,
-        "duplicate_groups": duplicate_groups,
+
+        "validation_issue_records":
+            review_records,
+
+        "duplicate_review_records":
+            possible_duplicate_records,
+
+        "duplicate_groups":
+            duplicate_groups,
+
         "data_quality_score": round(
             data_quality_score,
             2
@@ -1079,6 +1157,9 @@ def calculate_quality_health(dataframe):
     - Validity: 40%
     - Uniqueness: 35%
     - Completeness: 25%
+
+    REVIEW duplicate records are not treated as
+    confirmed duplicates in the uniqueness score.
     """
 
     total_records = len(dataframe)
@@ -1119,12 +1200,20 @@ def calculate_quality_health(dataframe):
         ).sum()
     )
 
-    unique_records = (
+    review_duplicates = int(
+        (
+            dataframe["duplicate_status"]
+            == "REVIEW"
+        ).sum()
+    )
+
+    records_without_confirmed_duplicate = (
         total_records - confirmed_duplicates
     )
 
     uniqueness_score = (
-        unique_records / total_records
+        records_without_confirmed_duplicate
+        / total_records
     ) * 100
 
     # ====================================
@@ -1224,6 +1313,12 @@ def calculate_quality_health(dataframe):
             2
         ),
         "health_status": health_status,
+
+        "confirmed_duplicate_records":
+            confirmed_duplicates,
+
+        "duplicate_review_records":
+            review_duplicates,
     }
 
 
@@ -1259,7 +1354,7 @@ def show_quality_summary(dataframe):
     )
 
     print(
-        f"Records needing review: "
+        f"Records needing validation review: "
         f"{metrics['review_records']}"
     )
 
@@ -1269,7 +1364,7 @@ def show_quality_summary(dataframe):
     )
 
     print(
-        f"Possible duplicates: "
+        f"Duplicates requiring manual review: "
         f"{metrics['possible_duplicate_records']}"
     )
 
@@ -1306,7 +1401,7 @@ def show_quality_summary(dataframe):
     )
 
     print(
-        f"- Duplicate groups: "
+        f"- Confirmed duplicate groups: "
         f"{metrics['duplicate_groups']}"
     )
 
@@ -1374,7 +1469,7 @@ def generate_recommendations(metrics):
         recommendations.append(
             f"Manually review "
             f"{metrics['possible_duplicate_records']} "
-            f"possible duplicate record(s)."
+            f"possible duplicate record(s) before import."
         )
 
     if metrics["missing_name"] > 0:
@@ -1477,13 +1572,13 @@ Records Processed:
 Clean Records:
 {metrics['clean_records']}
 
-Records Requiring Review:
+Records Requiring Validation Review:
 {metrics['review_records']}
 
 Confirmed Duplicate Records:
 {metrics['duplicate_records']}
 
-Possible Duplicate Records:
+Records Requiring Duplicate Review:
 {metrics['possible_duplicate_records']}
 
 Unique Records:
@@ -1566,7 +1661,7 @@ RECOMMENDED NEXT STEPS
 
         summary += (
             f"- Review the {metrics['review_records']} "
-            f"record(s) requiring attention.\n"
+            f"record(s) requiring validation attention.\n"
         )
 
     if metrics["duplicate_records"] > 0:
@@ -1582,7 +1677,8 @@ RECOMMENDED NEXT STEPS
         summary += (
             f"- Manually verify the "
             f"{metrics['possible_duplicate_records']} "
-            f"possible duplicate record(s).\n"
+            f"record(s) marked REVIEW REQUIRED for "
+            f"possible duplication before import.\n"
         )
 
     if metrics["missing_name"] > 0:
@@ -1658,7 +1754,7 @@ changes to CRM data.
 
 
 # ========================================
-# DAY 21 — IMPORT CLEAN RECORDS INTO SQLITE
+# IMPORT CLEAN RECORDS INTO SQLITE
 # ========================================
 
 def import_clean_records_to_database(
@@ -1672,8 +1768,15 @@ def import_clean_records_to_database(
     Import CLEAN + UNIQUE records into the
     CRM SQLite database.
 
-    Day 21 adds import batch tracking so the
-    same cleanup batch cannot be imported twice.
+    Only records that are:
+
+    - validation_status == CLEAN
+    - duplicate_status == UNIQUE
+
+    are eligible for import.
+
+    REVIEW and DUPLICATE records are never
+    automatically imported.
     """
 
     clean_records = dataframe[
@@ -1751,6 +1854,13 @@ def import_clean_records_to_database(
             f"{result['batch_id']}"
         )
 
+        if result.get("review_required", 0):
+
+            print(
+                f"Manual duplicate reviews: "
+                f"{result['review_required']}"
+            )
+
     print("\n========================================")
 
     return result
@@ -1803,12 +1913,12 @@ def export_results(
     ].copy()
 
     # ------------------------------------
-    # POSSIBLE DUPLICATES
+    # RECORDS REQUIRING DUPLICATE REVIEW
     # ------------------------------------
 
     possible_duplicate_records = dataframe[
         dataframe["duplicate_status"]
-        == "POSSIBLE DUPLICATE"
+        == "REVIEW"
     ].copy()
 
     # ------------------------------------
@@ -1827,6 +1937,8 @@ def export_results(
         run_directory / "duplicate_leads.csv"
     )
 
+    # Keep this filename for backward
+    # compatibility with existing deliveries.
     possible_duplicate_file = (
         run_directory
         / "possible_duplicate_leads.csv"
@@ -1947,7 +2059,8 @@ This report summarizes the results of the CRM data quality
 analysis performed on the submitted dataset.
 
 The dataset was inspected, standardized, validated, and
-analyzed for duplicate and possible duplicate records.
+analyzed for confirmed duplicates and records requiring
+manual duplicate review.
 
 Overall Data Quality Health:
 {health['overall_health_score']:.2f}%
@@ -1965,13 +2078,13 @@ Total Records Processed:
 Clean Records:
 {metrics['clean_records']}
 
-Records Requiring Review:
+Records Requiring Validation Review:
 {metrics['review_records']}
 
 Confirmed Duplicate Records:
 {metrics['duplicate_records']}
 
-Possible Duplicate Records:
+Records Requiring Duplicate Review:
 {metrics['possible_duplicate_records']}
 
 Unique Records:
@@ -2004,7 +2117,7 @@ Weight:
 40%
 
 Uniqueness:
-Measures the presence of confirmed duplicate records.
+Measures the absence of confirmed duplicate records.
 
 Weight:
 35%
@@ -2053,7 +2166,7 @@ Confirmed Duplicate Records:
 Confirmed Duplicate Groups:
 {metrics['duplicate_groups']}
 
-Possible Duplicate Records:
+Records Requiring Duplicate Review:
 {metrics['possible_duplicate_records']}
 
 Unique Records:
@@ -2065,9 +2178,9 @@ including name, company, email, and phone.
 Confirmed duplicates are identified using strong matching
 evidence.
 
-Possible duplicates are flagged when the available evidence
-suggests that two records may represent the same entity but
-does not provide enough confidence for automatic confirmation.
+Medium-confidence matches are classified as REVIEW and
+flagged for human review rather than being automatically
+merged or deleted.
 
 
 CLEANUP ACTIONS PERFORMED
@@ -2100,7 +2213,7 @@ DELIVERED FILES
 
 1. cleaned_leads.csv
    Contains records that passed validation and were not
-   identified as duplicates.
+   identified as duplicates or manual-review records.
 
 2. review_leads.csv
    Contains records requiring validation review.
@@ -2109,8 +2222,8 @@ DELIVERED FILES
    Contains records identified as confirmed duplicates.
 
 4. possible_duplicate_leads.csv
-   Contains records that require human review because they
-   may represent duplicate customers.
+   Contains records classified as REVIEW because they may
+   represent duplicate customers and require human review.
 
 5. cleanup_report.txt
    Contains this data quality analysis report.
@@ -2158,6 +2271,7 @@ The CRM cleanup pipeline performs the following stages:
 12. CSV export
 13. Business report generation
 14. Client delivery summary generation
+15. Safe SQLite import of CLEAN + UNIQUE records
 
 
 RECORD CLASSIFICATION
@@ -2168,20 +2282,20 @@ The record passed validation and was not identified as
 a duplicate.
 
 REVIEW:
-The record contains one or more validation issues and
-requires attention.
+The record contains validation issues OR a medium-confidence
+duplicate match requiring human attention.
 
 DUPLICATE:
 The system found strong evidence that the record is a
 duplicate of another record.
 
-POSSIBLE DUPLICATE:
-The system found meaningful similarity, but the evidence
-is not strong enough to automatically classify the record
-as a confirmed duplicate.
-
 UNIQUE:
 The record was not identified as a duplicate.
+
+NOTE:
+A duplicate record classified as REVIEW is exported
+separately and is NOT automatically imported into the
+CRM database.
 
 
 QUALITY STATUS SCALE
@@ -2229,14 +2343,13 @@ CRM operations, sales outreach, reporting, or automation.
         file.write(report)
 
     # ------------------------------------
-    # DAY 21 — CREATE BATCH KEY
+    # CREATE BATCH KEY
     # ------------------------------------
 
     batch_key = run_directory.name
 
     # ------------------------------------
-    # DAY 21 — IMPORT CLEAN RECORDS
-    # INTO SQLITE
+    # IMPORT CLEAN RECORDS INTO SQLITE
     # ------------------------------------
 
     database_result = (
@@ -2273,7 +2386,7 @@ CRM operations, sales outreach, reporting, or automation.
     )
 
     print(
-        f"Review records exported: "
+        f"Validation review records exported: "
         f"{metrics['review_records']}"
     )
 
@@ -2283,7 +2396,7 @@ CRM operations, sales outreach, reporting, or automation.
     )
 
     print(
-        f"Possible duplicates exported: "
+        f"Duplicate review records exported: "
         f"{metrics['possible_duplicate_records']}"
     )
 
@@ -2352,16 +2465,37 @@ CRM operations, sales outreach, reporting, or automation.
         f"{database_result['skipped']}"
     )
 
+    if database_result.get("review_required"):
+
+        print(
+            f"Manual duplicate reviews: "
+            f"{database_result['review_required']}"
+        )
+
     if database_result.get("already_imported"):
 
         print(
             "\nStatus: BATCH ALREADY IMPORTED"
         )
 
-    else:
+    elif database_result.get("imported", 0) > 0:
 
         print(
             "\nStatus: NEW BATCH IMPORTED"
+        )
+
+    elif database_result.get("skipped", 0) > 0:
+
+        print(
+            "\nStatus: NEW BATCH PROCESSED - "
+            "ALL ELIGIBLE RECORDS SKIPPED"
+        )
+
+    else:
+
+        print(
+            "\nStatus: NEW BATCH PROCESSED - "
+            "NO RECORDS IMPORTED"
         )
 
     print("\n========================================")
@@ -2533,6 +2667,13 @@ def main():
             f"SQLite records skipped: "
             f"{database_result['skipped']}"
         )
+
+        if database_result.get("review_required"):
+
+            print(
+                f"Manual duplicate reviews: "
+                f"{database_result['review_required']}"
+            )
 
     except FileNotFoundError as error:
 
