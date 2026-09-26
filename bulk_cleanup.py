@@ -16,6 +16,11 @@ from app.duplicate_detector import (
 
 from app.database import (
     import_clean_leads,
+    get_connection,
+)
+
+from app.lead_analyzer import (
+    analyze_and_save_lead,
 )
 
 
@@ -649,8 +654,6 @@ def detect_duplicates(dataframe):
 
             else:
 
-                # UNIQUE comparisons are not
-                # meaningful candidate matches.
                 priority = 0
 
             if priority == 0:
@@ -1117,7 +1120,6 @@ def calculate_quality_metrics(dataframe):
         "review_records": review_records,
         "duplicate_records": duplicate_records,
 
-        # Backward-compatible metric name.
         "possible_duplicate_records":
             possible_duplicate_records,
 
@@ -1810,6 +1812,7 @@ def import_clean_records_to_database(
             "skipped": 0,
             "already_imported": False,
             "batch_id": None,
+            "review_required": 0,
         }
 
     result = import_clean_leads(
@@ -1867,6 +1870,211 @@ def import_clean_records_to_database(
 
 
 # ========================================
+# BULK AI LEAD ANALYSIS
+# ========================================
+
+def analyze_imported_leads(
+    batch_id,
+    client_name,
+    dataset_name
+):
+    """
+    Run AI analysis on all leads imported by
+    the current cleanup batch.
+
+    AI failures do not delete, rollback, or
+    modify the imported lead.
+
+    Each lead is analyzed independently so that
+    one failed AI request does not stop the
+    remaining leads from being processed.
+    """
+
+    print("\n========================================")
+    print("        BULK AI LEAD ANALYSIS")
+    print("========================================")
+
+    if not batch_id:
+
+        print(
+            "\nNo batch ID available."
+        )
+
+        return {
+            "total": 0,
+            "analyzed": 0,
+            "failed": 0,
+        }
+
+    conn = get_connection()
+
+    try:
+
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                name,
+                email,
+                phone,
+                company,
+                message,
+                status
+            FROM leads
+            WHERE import_batch_id = ?
+            ORDER BY id
+            """,
+            (batch_id,)
+        )
+
+        imported_leads = cursor.fetchall()
+
+    finally:
+
+        conn.close()
+
+    total = len(imported_leads)
+
+    analyzed = 0
+    failed = 0
+
+    print(
+        f"\nLeads imported in this batch: "
+        f"{total}"
+    )
+
+    if total == 0:
+
+        print(
+            "\nNo newly imported leads require AI analysis."
+        )
+
+        return {
+            "total": 0,
+            "analyzed": 0,
+            "failed": 0,
+        }
+
+    for position, lead in enumerate(
+        imported_leads,
+        start=1
+    ):
+
+        lead_id = lead[0]
+
+        lead_data = {
+            "name": lead[1],
+            "email": lead[2],
+            "phone": lead[3],
+            "company": lead[4],
+            "message": lead[5],
+            "status": lead[6],
+        }
+
+        print("\n----------------------------------------")
+
+        print(
+            f"AI Analysis {position}/{total}"
+        )
+
+        print(
+            f"Lead ID: {lead_id}"
+        )
+
+        print(
+            f"Name: {lead_data['name']}"
+        )
+
+        print(
+            f"Company: {lead_data['company']}"
+        )
+
+        try:
+
+            analyze_and_save_lead(
+                lead_id,
+                lead_data
+            )
+
+            analyzed += 1
+
+            print(
+                "\nAI analysis saved successfully."
+            )
+
+        except Exception as error:
+
+            failed += 1
+
+            print(
+                "\nAI analysis failed."
+            )
+
+            print(
+                f"Lead ID: {lead_id}"
+            )
+
+            print(
+                f"Error: {error}"
+            )
+
+            print(
+                "Lead remains safely stored in the CRM."
+            )
+
+    print("\n========================================")
+    print("        BULK AI ANALYSIS RESULT")
+    print("========================================")
+
+    print(
+        f"\nClient: {client_name}"
+    )
+
+    print(
+        f"Dataset: {dataset_name}"
+    )
+
+    print(
+        f"Total imported leads: {total}"
+    )
+
+    print(
+        f"Successfully analyzed: {analyzed}"
+    )
+
+    print(
+        f"AI analysis failed: {failed}"
+    )
+
+    if failed > 0:
+
+        print(
+            "\nSome AI analyses failed."
+        )
+
+        print(
+            "The affected leads remain safely stored "
+            "in the CRM and can be analyzed again later."
+        )
+
+    else:
+
+        print(
+            "\nAll imported leads were analyzed successfully."
+        )
+
+    print("\n========================================")
+
+    return {
+        "total": total,
+        "analyzed": analyzed,
+        "failed": failed,
+    }
+
+
+# ========================================
 # EXPORT RESULTS
 # ========================================
 
@@ -1879,9 +2087,11 @@ def export_results(
 ):
     """
     Export all cleanup results into the
-    client-specific run directory and
-    import CLEAN + UNIQUE records into
-    SQLite using batch tracking.
+    client-specific run directory.
+
+    Import CLEAN + UNIQUE records into SQLite,
+    then run AI analysis against the newly
+    imported leads.
     """
 
     # ------------------------------------
@@ -1937,8 +2147,6 @@ def export_results(
         run_directory / "duplicate_leads.csv"
     )
 
-    # Keep this filename for backward
-    # compatibility with existing deliveries.
     possible_duplicate_file = (
         run_directory
         / "possible_duplicate_leads.csv"
@@ -2200,6 +2408,8 @@ CLEANUP ACTIONS PERFORMED
 [OK] Data quality health calculated
 [OK] Results exported
 [OK] Client delivery summary generated
+[OK] CLEAN + UNIQUE records imported into CRM
+[OK] Imported leads prepared for AI analysis
 
 
 RECOMMENDED ACTIONS
@@ -2272,6 +2482,7 @@ The CRM cleanup pipeline performs the following stages:
 13. Business report generation
 14. Client delivery summary generation
 15. Safe SQLite import of CLEAN + UNIQUE records
+16. AI lead analysis of newly imported CRM records
 
 
 RECORD CLASSIFICATION
@@ -2286,8 +2497,8 @@ The record contains validation issues OR a medium-confidence
 duplicate match requiring human attention.
 
 DUPLICATE:
-The system found strong evidence that the record is a
-duplicate of another record.
+The system found strong evidence that the record is
+a duplicate of another record.
 
 UNIQUE:
 The record was not identified as a duplicate.
@@ -2361,6 +2572,42 @@ CRM operations, sales outreach, reporting, or automation.
             batch_key
         )
     )
+
+    # ------------------------------------
+    # BULK AI ANALYSIS
+    # ------------------------------------
+
+    ai_result = {
+        "total": 0,
+        "analyzed": 0,
+        "failed": 0,
+    }
+
+    if (
+        not database_result.get("already_imported")
+        and database_result.get("batch_id")
+        and database_result.get("imported", 0) > 0
+    ):
+
+        ai_result = analyze_imported_leads(
+            database_result["batch_id"],
+            client_name,
+            dataset_name
+        )
+
+    elif database_result.get("already_imported"):
+
+        print(
+            "\nAI analysis skipped because "
+            "this batch was already imported."
+        )
+
+    else:
+
+        print(
+            "\nAI analysis skipped because "
+            "no new CRM leads were imported."
+        )
 
     # ------------------------------------
     # DISPLAY EXPORT RESULTS
@@ -2499,6 +2746,33 @@ CRM operations, sales outreach, reporting, or automation.
         )
 
     print("\n========================================")
+
+    # ------------------------------------
+    # BULK AI RESULT
+    # ------------------------------------
+
+    print("\n========================================")
+    print("        BULK AI RESULT")
+    print("========================================")
+
+    print(
+        f"\nAI analysis attempted: "
+        f"{ai_result['total']}"
+    )
+
+    print(
+        f"AI analysis completed: "
+        f"{ai_result['analyzed']}"
+    )
+
+    print(
+        f"AI analysis failed: "
+        f"{ai_result['failed']}"
+    )
+
+    print("\n========================================")
+
+    database_result["ai_analysis"] = ai_result
 
     return database_result
 
@@ -2639,7 +2913,7 @@ def main():
         )
 
         # --------------------------------
-        # EXPORT + SQLITE IMPORT
+        # EXPORT + SQLITE + AI
         # --------------------------------
 
         database_result = export_results(
@@ -2673,6 +2947,27 @@ def main():
             print(
                 f"Manual duplicate reviews: "
                 f"{database_result['review_required']}"
+            )
+
+        # --------------------------------
+        # AI FINAL RESULT
+        # --------------------------------
+
+        ai_result = database_result.get(
+            "ai_analysis",
+            {}
+        )
+
+        if ai_result:
+
+            print(
+                f"\nAI analyses completed: "
+                f"{ai_result.get('analyzed', 0)}"
+            )
+
+            print(
+                f"AI analyses failed: "
+                f"{ai_result.get('failed', 0)}"
             )
 
     except FileNotFoundError as error:
