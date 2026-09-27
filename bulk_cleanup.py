@@ -1,5 +1,6 @@
 import pandas as pd
 import phonenumbers
+import shutil
 
 from pathlib import Path
 from datetime import datetime
@@ -21,6 +22,10 @@ from app.database import (
 
 from app.lead_analyzer import (
     analyze_and_save_lead,
+)
+
+from app.crm_report import (
+    generate_client_report,
 )
 
 
@@ -304,10 +309,6 @@ def standardize_dataset(dataframe):
 
     dataframe = dataframe.copy()
 
-    # ------------------------------------
-    # STANDARDIZE NAME
-    # ------------------------------------
-
     if "name" in dataframe.columns:
 
         dataframe["name"] = (
@@ -323,10 +324,6 @@ def standardize_dataset(dataframe):
             .str.title()
         )
 
-    # ------------------------------------
-    # STANDARDIZE EMAIL
-    # ------------------------------------
-
     if "email" in dataframe.columns:
 
         dataframe["email"] = (
@@ -336,10 +333,6 @@ def standardize_dataset(dataframe):
             .str.strip()
             .str.lower()
         )
-
-    # ------------------------------------
-    # STANDARDIZE PHONE
-    # ------------------------------------
 
     if (
         "phone" in dataframe.columns
@@ -361,10 +354,6 @@ def standardize_dataset(dataframe):
             axis=1
         )
 
-    # ------------------------------------
-    # STANDARDIZE COMPANY
-    # ------------------------------------
-
     if "company" in dataframe.columns:
 
         dataframe["company"] = (
@@ -378,10 +367,6 @@ def standardize_dataset(dataframe):
                 regex=True
             )
         )
-
-    # ------------------------------------
-    # STANDARDIZE MESSAGE
-    # ------------------------------------
 
     if "message" in dataframe.columns:
 
@@ -419,10 +404,6 @@ def validate_dataset(dataframe):
 
         issues = []
 
-        # ------------------------------------
-        # VALIDATE NAME
-        # ------------------------------------
-
         name = row.get("name", "")
 
         if not name:
@@ -450,10 +431,6 @@ def validate_dataset(dataframe):
                 issues.append(
                     "Invalid name"
                 )
-
-        # ------------------------------------
-        # VALIDATE EMAIL
-        # ------------------------------------
 
         email = row.get("email", "")
 
@@ -483,10 +460,6 @@ def validate_dataset(dataframe):
                     "Invalid email"
                 )
 
-        # ------------------------------------
-        # VALIDATE PHONE
-        # ------------------------------------
-
         phone = row.get("phone", "")
 
         if not phone:
@@ -494,10 +467,6 @@ def validate_dataset(dataframe):
             issues.append(
                 "Invalid phone"
             )
-
-        # ------------------------------------
-        # ASSIGN VALIDATION RESULT
-        # ------------------------------------
 
         if issues:
 
@@ -583,24 +552,6 @@ def detect_duplicates(dataframe):
     """
     Detect duplicate CRM records using fuzzy
     matching and confidence scoring.
-
-    Decision model:
-
-    HIGH confidence
-        -> DUPLICATE
-
-    MEDIUM confidence
-        -> REVIEW
-
-    LOW / no meaningful match
-        -> UNIQUE
-
-    Records are flagged, not deleted.
-
-    Each record is compared against every other
-    record in the dataset.
-
-    The strongest meaningful match is kept.
     """
 
     dataframe = dataframe.copy()
@@ -639,10 +590,6 @@ def detect_duplicates(dataframe):
             status = result["status"]
             confidence = result["confidence"]
             scores = result["scores"]
-
-            # --------------------------------
-            # DUPLICATE DECISION PRIORITY
-            # --------------------------------
 
             if status == "DUPLICATE":
 
@@ -690,10 +637,6 @@ def detect_duplicates(dataframe):
                 }
 
         best_matches[index] = best_match
-
-    # ------------------------------------
-    # APPLY BEST MATCHES
-    # ------------------------------------
 
     for index, match in best_matches.items():
 
@@ -848,11 +791,6 @@ def show_duplicate_results(dataframe):
 def calculate_duplicate_groups(dataframe):
     """
     Calculate actual confirmed duplicate groups.
-
-    Only DUPLICATE records are included.
-
-    REVIEW records are intentionally excluded because
-    they require human confirmation first.
     """
 
     duplicate_rows = dataframe[
@@ -884,17 +822,9 @@ def calculate_duplicate_groups(dataframe):
 
             parent[second_root] = first_root
 
-    # ------------------------------------
-    # INITIALIZE DUPLICATE RECORDS
-    # ------------------------------------
-
     for index in duplicate_rows.index:
 
         parent[index] = index
-
-    # ------------------------------------
-    # CONNECT MATCHED RECORDS
-    # ------------------------------------
 
     for index, row in duplicate_rows.iterrows():
 
@@ -937,10 +867,6 @@ def calculate_duplicate_groups(dataframe):
 
             continue
 
-    # ------------------------------------
-    # COUNT CONNECTED GROUPS
-    # ------------------------------------
-
     groups = set()
 
     for index in parent:
@@ -959,17 +885,6 @@ def calculate_duplicate_groups(dataframe):
 def calculate_quality_metrics(dataframe):
     """
     Calculate business-level data quality statistics.
-
-    review_records:
-        Validation issues only.
-
-    possible_duplicate_records:
-        REVIEW duplicate matches requiring
-        human review.
-
-    The key name possible_duplicate_records is
-    retained for backward compatibility with
-    existing reports and integrations.
     """
 
     total_records = len(dataframe)
@@ -994,20 +909,12 @@ def calculate_quality_metrics(dataframe):
             "data_quality_score": 0.0,
         }
 
-    # ------------------------------------
-    # VALIDATION REVIEW
-    # ------------------------------------
-
     review_records = int(
         (
             dataframe["validation_status"]
             == "REVIEW"
         ).sum()
     )
-
-    # ------------------------------------
-    # CONFIRMED DUPLICATES
-    # ------------------------------------
 
     duplicate_records = int(
         (
@@ -1016,20 +923,12 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
-    # ------------------------------------
-    # DUPLICATES REQUIRING REVIEW
-    # ------------------------------------
-
     possible_duplicate_records = int(
         (
             dataframe["duplicate_status"]
             == "REVIEW"
         ).sum()
     )
-
-    # ------------------------------------
-    # UNIQUE RECORDS
-    # ------------------------------------
 
     unique_records = int(
         (
@@ -1038,10 +937,6 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
-    # ------------------------------------
-    # CLEAN RECORDS
-    # ------------------------------------
-
     clean_records = int(
         (
             (dataframe["validation_status"] == "CLEAN")
@@ -1049,10 +944,6 @@ def calculate_quality_metrics(dataframe):
             (dataframe["duplicate_status"] == "UNIQUE")
         ).sum()
     )
-
-    # ------------------------------------
-    # VALIDATION ISSUES
-    # ------------------------------------
 
     issues = (
         dataframe["validation_issues"]
@@ -1098,17 +989,9 @@ def calculate_quality_metrics(dataframe):
         ).sum()
     )
 
-    # ------------------------------------
-    # DUPLICATE GROUPS
-    # ------------------------------------
-
     duplicate_groups = calculate_duplicate_groups(
         dataframe
     )
-
-    # ------------------------------------
-    # OVERALL CLEAN DATA SCORE
-    # ------------------------------------
 
     data_quality_score = (
         clean_records / total_records
@@ -1119,26 +1002,20 @@ def calculate_quality_metrics(dataframe):
         "clean_records": clean_records,
         "review_records": review_records,
         "duplicate_records": duplicate_records,
-
         "possible_duplicate_records":
             possible_duplicate_records,
-
         "unique_records": unique_records,
         "missing_name": missing_name,
         "missing_email": missing_email,
         "invalid_email": invalid_email,
         "invalid_phone": invalid_phone,
         "missing_phone": missing_phone,
-
         "validation_issue_records":
             review_records,
-
         "duplicate_review_records":
             possible_duplicate_records,
-
         "duplicate_groups":
             duplicate_groups,
-
         "data_quality_score": round(
             data_quality_score,
             2
@@ -1152,16 +1029,8 @@ def calculate_quality_metrics(dataframe):
 
 def calculate_quality_health(dataframe):
     """
-    Calculate a multidimensional CRM data quality
+    Calculate multidimensional CRM data quality
     health score.
-
-    Scoring:
-    - Validity: 40%
-    - Uniqueness: 35%
-    - Completeness: 25%
-
-    REVIEW duplicate records are not treated as
-    confirmed duplicates in the uniqueness score.
     """
 
     total_records = len(dataframe)
@@ -1176,10 +1045,6 @@ def calculate_quality_health(dataframe):
             "health_status": "NO DATA",
         }
 
-    # ====================================
-    # VALIDITY SCORE
-    # ====================================
-
     valid_records = int(
         (
             dataframe["validation_status"]
@@ -1190,10 +1055,6 @@ def calculate_quality_health(dataframe):
     validity_score = (
         valid_records / total_records
     ) * 100
-
-    # ====================================
-    # UNIQUENESS SCORE
-    # ====================================
 
     confirmed_duplicates = int(
         (
@@ -1217,10 +1078,6 @@ def calculate_quality_health(dataframe):
         records_without_confirmed_duplicate
         / total_records
     ) * 100
-
-    # ====================================
-    # COMPLETENESS SCORE
-    # ====================================
 
     important_fields = [
         "name",
@@ -1265,10 +1122,6 @@ def calculate_quality_health(dataframe):
 
         completeness_score = 0.0
 
-    # ====================================
-    # OVERALL HEALTH SCORE
-    # ====================================
-
     overall_health_score = (
         (validity_score * 0.40)
         +
@@ -1276,10 +1129,6 @@ def calculate_quality_health(dataframe):
         +
         (completeness_score * 0.25)
     )
-
-    # ====================================
-    # HEALTH STATUS
-    # ====================================
 
     if overall_health_score >= 90:
 
@@ -1315,10 +1164,8 @@ def calculate_quality_health(dataframe):
             2
         ),
         "health_status": health_status,
-
         "confirmed_duplicate_records":
             confirmed_duplicates,
-
         "duplicate_review_records":
             review_duplicates,
     }
@@ -1628,32 +1475,6 @@ Confirmed Duplicate Groups:
 {metrics['duplicate_groups']}
 
 
-DELIVERABLES
-------------------------------------------------------------
-
-The following files were generated as part of this
-CRM data cleanup:
-
-1. cleaned_leads.csv
-   Clean records ready for further CRM use.
-
-2. review_leads.csv
-   Records requiring validation or data correction.
-
-3. duplicate_leads.csv
-   Records identified as confirmed duplicates.
-
-4. possible_duplicate_leads.csv
-   Records requiring human review because they may
-   represent duplicate customers.
-
-5. cleanup_report.txt
-   Detailed technical and business data-quality report.
-
-6. client_delivery_summary.txt
-   This client-facing summary.
-
-
 RECOMMENDED NEXT STEPS
 ------------------------------------------------------------
 
@@ -1767,18 +1588,7 @@ def import_clean_records_to_database(
     batch_key
 ):
     """
-    Import CLEAN + UNIQUE records into the
-    CRM SQLite database.
-
-    Only records that are:
-
-    - validation_status == CLEAN
-    - duplicate_status == UNIQUE
-
-    are eligible for import.
-
-    REVIEW and DUPLICATE records are never
-    automatically imported.
+    Import CLEAN + UNIQUE records into SQLite.
     """
 
     clean_records = dataframe[
@@ -1881,13 +1691,6 @@ def analyze_imported_leads(
     """
     Run AI analysis on all leads imported by
     the current cleanup batch.
-
-    AI failures do not delete, rollback, or
-    modify the imported lead.
-
-    Each lead is analyzed independently so that
-    one failed AI request does not stop the
-    remaining leads from being processed.
     """
 
     print("\n========================================")
@@ -2075,6 +1878,267 @@ def analyze_imported_leads(
 
 
 # ========================================
+# CLIENT DELIVERY PACKAGE
+# ========================================
+
+def create_client_delivery_package(
+    run_directory,
+    client_name,
+    dataset_name,
+    source_file,
+    clean_records,
+    summary_file,
+    database_result
+):
+    """
+    Create the final client-facing delivery package.
+
+    Package:
+
+        CLIENT_DELIVERY/
+        ├── CRM Intelligence Report.html
+        ├── CRM Intelligence Report.txt
+        ├── Cleaned Dataset.csv
+        └── Delivery Summary.txt
+
+    The package is generated from the actual cleanup
+    run and the CRM intelligence report.
+    """
+
+    print("\n========================================")
+    print("       CLIENT DELIVERY PACKAGE")
+    print("========================================")
+
+    delivery_directory = (
+        run_directory / "CLIENT_DELIVERY"
+    )
+
+    delivery_directory.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    # ------------------------------------
+    # GET BATCH ID
+    # ------------------------------------
+
+    batch_id = database_result.get(
+        "batch_id"
+    )
+
+    if not batch_id:
+
+        print(
+            "\nNo CRM batch ID available."
+        )
+
+        print(
+            "Intelligence report generation skipped."
+        )
+
+        return None
+
+    # ------------------------------------
+    # GENERATE INTELLIGENCE REPORTS
+    # ------------------------------------
+
+    try:
+
+        report_result = generate_client_report(
+            batch_id
+        )
+
+        txt_report = Path(
+            report_result["txt_path"]
+        )
+
+        html_report = Path(
+            report_result["html_path"]
+        )
+
+        # --------------------------------
+        # COPY + RENAME REPORTS
+        # --------------------------------
+
+        delivery_html = (
+            delivery_directory
+            / "CRM Intelligence Report.html"
+        )
+
+        delivery_txt = (
+            delivery_directory
+            / "CRM Intelligence Report.txt"
+        )
+
+        shutil.copy2(
+            html_report,
+            delivery_html
+        )
+
+        shutil.copy2(
+            txt_report,
+            delivery_txt
+        )
+
+        print(
+            "\nCRM Intelligence Report generated."
+        )
+
+    except Exception as error:
+
+        print(
+            "\nWARNING: CRM Intelligence Report "
+            "could not be generated."
+        )
+
+        print(
+            f"Error: {error}"
+        )
+
+        delivery_html = None
+        delivery_txt = None
+
+    # ------------------------------------
+    # COPY CLEANED DATASET
+    # ------------------------------------
+
+    cleaned_dataset_file = (
+        delivery_directory
+        / "Cleaned Dataset.csv"
+    )
+
+    clean_records.to_csv(
+        cleaned_dataset_file,
+        index=False
+    )
+
+    # ------------------------------------
+    # COPY DELIVERY SUMMARY
+    # ------------------------------------
+
+    delivery_summary_file = (
+        delivery_directory
+        / "Delivery Summary.txt"
+    )
+
+    shutil.copy2(
+        summary_file,
+        delivery_summary_file
+    )
+
+    # ------------------------------------
+    # ADD DELIVERY PACKAGE INFORMATION
+    # ------------------------------------
+
+    package_readme = (
+        delivery_directory
+        / "Delivery Summary.txt"
+    )
+
+    with open(
+        package_readme,
+        "a",
+        encoding="utf-8"
+    ) as file:
+
+        file.write(
+            f"""
+
+============================================================
+                 CLIENT DELIVERY PACKAGE
+============================================================
+
+Client:
+{client_name}
+
+Dataset:
+{dataset_name}
+
+Source File:
+{source_file}
+
+CRM Batch ID:
+{batch_id}
+
+Package Generated:
+{datetime.now().strftime("%B %d, %Y at %H:%M:%S")}
+
+
+PACKAGE CONTENTS
+------------------------------------------------------------
+
+CRM Intelligence Report.html
+A visual client-facing CRM intelligence dashboard.
+
+CRM Intelligence Report.txt
+A text version of the CRM intelligence report.
+
+Cleaned Dataset.csv
+Clean + unique records ready for CRM use.
+
+Delivery Summary.txt
+Summary of the cleanup process, quality results,
+and recommended next steps.
+
+
+IMPORTANT
+------------------------------------------------------------
+
+Confirmed duplicates and records requiring manual review
+are intentionally excluded from the cleaned dataset.
+
+The system does not automatically delete or merge
+customer records.
+
+
+============================================================
+                 END OF DELIVERY PACKAGE
+============================================================
+"""
+        )
+
+    # ------------------------------------
+    # DISPLAY PACKAGE
+    # ------------------------------------
+
+    print(
+        "\nClient delivery package created:"
+    )
+
+    print(
+        f"\n{delivery_directory}"
+    )
+
+    print("\nFiles:")
+
+    print(
+        "- CRM Intelligence Report.html"
+    )
+
+    print(
+        "- CRM Intelligence Report.txt"
+    )
+
+    print(
+        "- Cleaned Dataset.csv"
+    )
+
+    print(
+        "- Delivery Summary.txt"
+    )
+
+    print("\n========================================")
+
+    return {
+        "directory": delivery_directory,
+        "html_report": delivery_html,
+        "txt_report": delivery_txt,
+        "cleaned_dataset": cleaned_dataset_file,
+        "delivery_summary": delivery_summary_file,
+    }
+
+
+# ========================================
 # EXPORT RESULTS
 # ========================================
 
@@ -2086,17 +2150,20 @@ def export_results(
     source_file
 ):
     """
-    Export all cleanup results into the
-    client-specific run directory.
+    Export all cleanup results.
 
-    Import CLEAN + UNIQUE records into SQLite,
-    then run AI analysis against the newly
-    imported leads.
+    Flow:
+
+        CSV cleanup
+        ↓
+        SQLite import
+        ↓
+        AI analysis
+        ↓
+        Client intelligence report
+        ↓
+        Client delivery package
     """
-
-    # ------------------------------------
-    # CLEAN RECORDS
-    # ------------------------------------
 
     clean_records = dataframe[
         (dataframe["validation_status"] == "CLEAN")
@@ -2104,36 +2171,20 @@ def export_results(
         (dataframe["duplicate_status"] == "UNIQUE")
     ].copy()
 
-    # ------------------------------------
-    # RECORDS NEEDING VALIDATION REVIEW
-    # ------------------------------------
-
     review_records = dataframe[
         dataframe["validation_status"]
         == "REVIEW"
     ].copy()
-
-    # ------------------------------------
-    # CONFIRMED DUPLICATES
-    # ------------------------------------
 
     duplicate_records = dataframe[
         dataframe["duplicate_status"]
         == "DUPLICATE"
     ].copy()
 
-    # ------------------------------------
-    # RECORDS REQUIRING DUPLICATE REVIEW
-    # ------------------------------------
-
     possible_duplicate_records = dataframe[
         dataframe["duplicate_status"]
         == "REVIEW"
     ].copy()
-
-    # ------------------------------------
-    # FILE PATHS
-    # ------------------------------------
 
     cleaned_file = (
         run_directory / "cleaned_leads.csv"
@@ -2156,10 +2207,6 @@ def export_results(
         run_directory / "cleanup_report.txt"
     )
 
-    # ------------------------------------
-    # EXPORT CSV FILES
-    # ------------------------------------
-
     clean_records.to_csv(
         cleaned_file,
         index=False
@@ -2180,10 +2227,6 @@ def export_results(
         index=False
     )
 
-    # ------------------------------------
-    # CALCULATE METRICS
-    # ------------------------------------
-
     metrics = calculate_quality_metrics(
         dataframe
     )
@@ -2196,10 +2239,6 @@ def export_results(
         metrics
     )
 
-    # ------------------------------------
-    # CLIENT DELIVERY SUMMARY
-    # ------------------------------------
-
     summary_file = generate_client_delivery_summary(
         client_name,
         dataset_name,
@@ -2209,17 +2248,9 @@ def export_results(
         health
     )
 
-    # ------------------------------------
-    # RUN INFORMATION
-    # ------------------------------------
-
     run_time = datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
     )
-
-    # ------------------------------------
-    # RECOMMENDATION TEXT
-    # ------------------------------------
 
     recommendation_text = "\n".join(
         [
@@ -2231,10 +2262,6 @@ def export_results(
             )
         ]
     )
-
-    # ------------------------------------
-    # PROFESSIONAL CLIENT REPORT
-    # ------------------------------------
 
     report = f"""
 ============================================================
@@ -2422,34 +2449,18 @@ DELIVERED FILES
 ------------------------------------------------------------
 
 1. cleaned_leads.csv
-   Contains records that passed validation and were not
-   identified as duplicates or manual-review records.
-
 2. review_leads.csv
-   Contains records requiring validation review.
-
 3. duplicate_leads.csv
-   Contains records identified as confirmed duplicates.
-
 4. possible_duplicate_leads.csv
-   Contains records classified as REVIEW because they may
-   represent duplicate customers and require human review.
-
 5. cleanup_report.txt
-   Contains this data quality analysis report.
-
 6. client_delivery_summary.txt
-   Contains a concise client-facing summary of the cleanup
-   results, data quality health, key issues, and recommended
-   next steps.
 
 
 DUPLICATE SAFETY
 ------------------------------------------------------------
 
-The system is designed to identify and flag suspicious
-records rather than automatically performing destructive
-actions.
+The system identifies and flags suspicious records rather
+than automatically performing destructive actions.
 
 The system does NOT automatically:
 
@@ -2464,8 +2475,6 @@ or modifying CRM records.
 
 TECHNICAL METHODOLOGY
 ------------------------------------------------------------
-
-The CRM cleanup pipeline performs the following stages:
 
 1. CSV ingestion
 2. Dataset inspection
@@ -2503,11 +2512,6 @@ a duplicate of another record.
 UNIQUE:
 The record was not identified as a duplicate.
 
-NOTE:
-A duplicate record classified as REVIEW is exported
-separately and is NOT automatically imported into the
-CRM database.
-
 
 QUALITY STATUS SCALE
 ------------------------------------------------------------
@@ -2541,10 +2545,6 @@ CRM operations, sales outreach, reporting, or automation.
 ============================================================
 """
 
-    # ------------------------------------
-    # WRITE REPORT
-    # ------------------------------------
-
     with open(
         report_file,
         "w",
@@ -2560,7 +2560,7 @@ CRM operations, sales outreach, reporting, or automation.
     batch_key = run_directory.name
 
     # ------------------------------------
-    # IMPORT CLEAN RECORDS INTO SQLITE
+    # IMPORT CLEAN RECORDS
     # ------------------------------------
 
     database_result = (
@@ -2608,6 +2608,28 @@ CRM operations, sales outreach, reporting, or automation.
             "\nAI analysis skipped because "
             "no new CRM leads were imported."
         )
+
+    database_result["ai_analysis"] = ai_result
+
+    # ------------------------------------
+    # CLIENT DELIVERY PACKAGE
+    # ------------------------------------
+
+    delivery_package = (
+        create_client_delivery_package(
+            run_directory,
+            client_name,
+            dataset_name,
+            source_file,
+            clean_records,
+            summary_file,
+            database_result
+        )
+    )
+
+    database_result["client_delivery"] = (
+        delivery_package
+    )
 
     # ------------------------------------
     # DISPLAY EXPORT RESULTS
@@ -2772,8 +2794,6 @@ CRM operations, sales outreach, reporting, or automation.
 
     print("\n========================================")
 
-    database_result["ai_analysis"] = ai_result
-
     return database_result
 
 
@@ -2789,17 +2809,9 @@ def main():
 
     try:
 
-        # --------------------------------
-        # CLIENT INFORMATION
-        # --------------------------------
-
         client_name, dataset_name = (
             get_client_information()
         )
-
-        # --------------------------------
-        # INPUT FILE
-        # --------------------------------
 
         file_name = input(
             "\nEnter CSV file name: "
@@ -2814,10 +2826,6 @@ def main():
 
             return
 
-        # --------------------------------
-        # LOAD
-        # --------------------------------
-
         dataframe = load_csv(
             file_name
         )
@@ -2825,10 +2833,6 @@ def main():
         print(
             "\nCSV file loaded successfully."
         )
-
-        # --------------------------------
-        # CREATE RUN DIRECTORY
-        # --------------------------------
 
         run_directory = create_run_directory(
             client_name
@@ -2850,10 +2854,6 @@ def main():
             f"Run directory: {run_directory}"
         )
 
-        # --------------------------------
-        # INSPECT
-        # --------------------------------
-
         show_dataset_info(
             dataframe
         )
@@ -2861,10 +2861,6 @@ def main():
         inspect_dataset(
             dataframe
         )
-
-        # --------------------------------
-        # STANDARDIZE
-        # --------------------------------
 
         standardized_dataframe = (
             standardize_dataset(
@@ -2876,10 +2872,6 @@ def main():
             standardized_dataframe
         )
 
-        # --------------------------------
-        # VALIDATE
-        # --------------------------------
-
         validated_dataframe = (
             validate_dataset(
                 standardized_dataframe
@@ -2889,10 +2881,6 @@ def main():
         show_validation_results(
             validated_dataframe
         )
-
-        # --------------------------------
-        # DUPLICATE DETECTION
-        # --------------------------------
 
         duplicate_dataframe = (
             detect_duplicates(
@@ -2904,17 +2892,9 @@ def main():
             duplicate_dataframe
         )
 
-        # --------------------------------
-        # QUALITY ANALYSIS
-        # --------------------------------
-
         show_quality_summary(
             duplicate_dataframe
         )
-
-        # --------------------------------
-        # EXPORT + SQLITE + AI
-        # --------------------------------
 
         database_result = export_results(
             duplicate_dataframe,
@@ -2923,10 +2903,6 @@ def main():
             run_directory,
             file_name
         )
-
-        # --------------------------------
-        # FINAL RESULT
-        # --------------------------------
 
         print(
             "\nCRM cleanup run completed successfully."
@@ -2949,10 +2925,6 @@ def main():
                 f"{database_result['review_required']}"
             )
 
-        # --------------------------------
-        # AI FINAL RESULT
-        # --------------------------------
-
         ai_result = database_result.get(
             "ai_analysis",
             {}
@@ -2968,6 +2940,60 @@ def main():
             print(
                 f"AI analyses failed: "
                 f"{ai_result.get('failed', 0)}"
+            )
+
+        # --------------------------------
+        # FINAL CLIENT DELIVERY LOCATION
+        # --------------------------------
+
+        delivery_package = database_result.get(
+            "client_delivery"
+        )
+
+        if delivery_package:
+
+            print(
+                "\n========================================"
+            )
+
+            print(
+                "       CLIENT DELIVERY READY"
+            )
+
+            print(
+                "========================================"
+            )
+
+            print(
+                f"\nDelivery package:"
+            )
+
+            print(
+                delivery_package["directory"]
+            )
+
+            print(
+                "\nClient can receive:"
+            )
+
+            print(
+                "- CRM Intelligence Report.html"
+            )
+
+            print(
+                "- CRM Intelligence Report.txt"
+            )
+
+            print(
+                "- Cleaned Dataset.csv"
+            )
+
+            print(
+                "- Delivery Summary.txt"
+            )
+
+            print(
+                "\n========================================"
             )
 
     except FileNotFoundError as error:

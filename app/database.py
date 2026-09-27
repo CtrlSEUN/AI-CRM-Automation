@@ -1339,6 +1339,374 @@ def get_dashboard_stats():
         conn.close()
 
 
+def get_crm_intelligence_report(batch_id=None):
+    """
+    Build a structured CRM intelligence dataset for reporting.
+
+    If batch_id is provided, only leads from that import batch are included.
+    If batch_id is None, all CRM leads are included.
+
+    This function does not call any external AI service.
+    It only analyzes data already stored in SQLite.
+    """
+
+    if batch_id is not None:
+        if not isinstance(batch_id, int) or batch_id <= 0:
+            raise ValueError("batch_id must be a positive integer.")
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        batch_info = None
+
+        if batch_id is not None:
+            cursor.execute("""
+                SELECT
+                    id,
+                    batch_key,
+                    client_name,
+                    dataset_name,
+                    source_file,
+                    imported_count,
+                    status,
+                    created_at
+                FROM import_batches
+                WHERE id = ?
+            """, (batch_id,))
+
+            batch = cursor.fetchone()
+
+            if not batch:
+                return None
+
+            batch_info = {
+                "batch_id": batch[0],
+                "batch_key": batch[1],
+                "client_name": batch[2],
+                "dataset_name": batch[3],
+                "source_file": batch[4],
+                "imported_count": batch[5],
+                "status": batch[6],
+                "created_at": batch[7]
+            }
+
+        where_clause = ""
+        parameters = ()
+
+        if batch_id is not None:
+            where_clause = "WHERE import_batch_id = ?"
+            parameters = (batch_id,)
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            """,
+            parameters
+        )
+
+        total_leads = cursor.fetchone()[0]
+
+        status_counts = {}
+
+        for status in sorted(ALLOWED_STATUSES):
+            query = f"""
+                SELECT COUNT(*)
+                FROM leads
+                {where_clause}
+                {"AND" if where_clause else "WHERE"} status = ?
+            """
+
+            query_parameters = (
+                parameters + (status,)
+            )
+
+            cursor.execute(query, query_parameters)
+            status_counts[status] = cursor.fetchone()[0]
+
+        priority_counts = {}
+
+        for priority in sorted(ALLOWED_PRIORITIES):
+            query = f"""
+                SELECT COUNT(*)
+                FROM leads
+                {where_clause}
+                {"AND" if where_clause else "WHERE"}
+                UPPER(TRIM(priority)) = ?
+            """
+
+            query_parameters = (
+                parameters + (priority,)
+            )
+
+            cursor.execute(query, query_parameters)
+            priority_counts[priority] = cursor.fetchone()[0]
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            duplicate = 1
+            """,
+            parameters
+        )
+
+        duplicate_records = cursor.fetchone()[0]
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            duplicate = 1
+            AND duplicate_reason LIKE 'Manual duplicate review required%'
+            """,
+            parameters
+        )
+
+        review_required = cursor.fetchone()[0]
+
+        confirmed_duplicates = max(
+            0,
+            duplicate_records - review_required
+        )
+
+        missing_email_query = f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            TRIM(COALESCE(email, '')) = ''
+        """
+
+        cursor.execute(
+            missing_email_query,
+            parameters
+        )
+
+        missing_email = cursor.fetchone()[0]
+
+        missing_phone_query = f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            TRIM(COALESCE(phone, '')) = ''
+        """
+
+        cursor.execute(
+            missing_phone_query,
+            parameters
+        )
+
+        missing_phone = cursor.fetchone()[0]
+
+        missing_company_query = f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            TRIM(COALESCE(company, '')) = ''
+        """
+
+        cursor.execute(
+            missing_company_query,
+            parameters
+        )
+
+        missing_company = cursor.fetchone()[0]
+
+        missing_message_query = f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            TRIM(COALESCE(message, '')) = ''
+        """
+
+        cursor.execute(
+            missing_message_query,
+            parameters
+        )
+
+        missing_message = cursor.fetchone()[0]
+
+        cursor.execute(
+            f"""
+            SELECT AVG(lead_score)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            lead_score IS NOT NULL
+            """,
+            parameters
+        )
+
+        average_lead_score = cursor.fetchone()[0]
+
+        if average_lead_score is None:
+            average_lead_score = 0
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            lead_score IS NOT NULL
+            """,
+            parameters
+        )
+
+        analyzed_leads = cursor.fetchone()[0]
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            priority = 'HIGH'
+            """,
+            parameters
+        )
+
+        high_priority_leads = cursor.fetchone()[0]
+
+        cursor.execute(
+            f"""
+            SELECT
+                product,
+                COUNT(*) AS demand_count
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            product IS NOT NULL
+            AND TRIM(product) != ''
+            AND LOWER(TRIM(product)) != 'unknown'
+            GROUP BY LOWER(TRIM(product))
+            ORDER BY demand_count DESC
+            LIMIT 10
+            """,
+            parameters
+        )
+
+        top_products = [
+            {
+                "product": row[0],
+                "count": row[1]
+            }
+            for row in cursor.fetchall()
+        ]
+
+        cursor.execute(
+            f"""
+            SELECT
+                intent,
+                COUNT(*) AS intent_count
+            FROM leads
+            {where_clause}
+            {"AND" if where_clause else "WHERE"}
+            intent IS NOT NULL
+            AND TRIM(intent) != ''
+            GROUP BY LOWER(TRIM(intent))
+            ORDER BY intent_count DESC
+            LIMIT 10
+            """,
+            parameters
+        )
+
+        intent_distribution = [
+            {
+                "intent": row[0],
+                "count": row[1]
+            }
+            for row in cursor.fetchall()
+        ]
+
+        converted_leads = status_counts["CONVERTED"]
+
+        conversion_rate = (
+            (converted_leads / total_leads) * 100
+            if total_leads > 0
+            else 0
+        )
+
+        missing_information_total = (
+            missing_phone
+            + missing_company
+            + missing_message
+        )
+
+        data_quality_rate = (
+            (
+                (total_leads - duplicate_records) / total_leads
+            ) * 100
+            if total_leads > 0
+            else 100
+        )
+
+        return {
+            "batch": batch_info,
+            "scope": (
+                "IMPORT_BATCH"
+                if batch_id is not None
+                else "ALL_CRM_LEADS"
+            ),
+            "generated_at": None,
+
+            "database_overview": {
+                "total_leads": total_leads,
+                "status_counts": status_counts,
+                "conversion_rate": conversion_rate
+            },
+
+            "data_quality": {
+                "duplicate_records": duplicate_records,
+                "confirmed_duplicates": confirmed_duplicates,
+                "review_required": review_required,
+                "missing_email": missing_email,
+                "missing_phone": missing_phone,
+                "missing_company": missing_company,
+                "missing_message": missing_message,
+                "missing_information_total": missing_information_total,
+                "data_quality_rate": data_quality_rate
+            },
+
+            "lead_intelligence": {
+                "priority_counts": priority_counts,
+                "high_priority_leads": high_priority_leads,
+                "average_lead_score": average_lead_score,
+                "analyzed_leads": analyzed_leads,
+                "unanalyzed_leads": total_leads - analyzed_leads
+            },
+
+            "demand_insights": {
+                "top_products": top_products,
+                "intent_distribution": intent_distribution
+            },
+
+            "recommended_focus": {
+                "high_priority_follow_up": high_priority_leads,
+                "duplicate_review": review_required,
+                "qualified_follow_up": status_counts["QUALIFIED"],
+                "re_engagement": (
+                    status_counts["LOST"]
+                    + status_counts["QUALIFIED"]
+                )
+            }
+        }
+
+    finally:
+        conn.close()
+
+
 def create_lead_activity(lead_id, activity_type, description):
     if not isinstance(lead_id, int) or lead_id <= 0:
         raise ValueError("lead_id must be a positive integer.")
