@@ -21,8 +21,9 @@ from bulk_cleanup import (
 
 st.set_page_config(
     page_title="CRM Intelligence",
-    page_icon="📊",
+    page_icon="◆",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -47,78 +48,537 @@ st.markdown(
     """
     <style>
 
+    /* ====================================
+       DESIGN SYSTEM
+       ==================================== */
+
+    :root {
+        --crm-green: #0F6B4F;
+        --crm-green-hover: #0B5A42;
+        --crm-green-soft: #EAF5F0;
+
+        --crm-black: #111111;
+        --crm-white: #FFFFFF;
+
+        --crm-border: #E5E7EB;
+        --crm-muted: #6B7280;
+        --crm-surface: #FFFFFF;
+
+        --crm-shadow: rgba(0, 0, 0, 0.045);
+    }
+
+
+    /* ====================================
+       GLOBAL
+       ==================================== */
+
+    .stApp {
+        background: var(--crm-white);
+    }
+
     .main {
-        padding-top: 2rem;
+        padding-top: 1rem;
     }
 
     .block-container {
-        max-width: 1200px;
-        padding-left: 3rem;
-        padding-right: 3rem;
+        max-width: 1240px;
+        padding-left: 2.5rem;
+        padding-right: 2.5rem;
+        padding-bottom: 4rem;
     }
 
-    .hero {
-        padding: 2rem;
-        border-radius: 18px;
-        background: linear-gradient(
-            135deg,
-            #111827,
-            #1f2937
-        );
-        color: white;
-        margin-bottom: 2rem;
+
+    /* ====================================
+       GENERAL TYPOGRAPHY
+       ==================================== */
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        color: var(--crm-black);
     }
 
-    .hero h1 {
-        font-size: 2.5rem;
-        margin-bottom: 0.5rem;
+    p,
+    label {
+        color: var(--crm-black);
     }
 
-    .hero p {
-        font-size: 1.05rem;
-        color: #d1d5db;
-    }
+
+    /* ====================================
+       SECTION TITLES
+       ==================================== */
 
     .section-title {
-        font-size: 1.4rem;
-        font-weight: 700;
-        margin-top: 1.5rem;
+        margin-top: 2rem;
         margin-bottom: 1rem;
+        color: var(--crm-black);
+        font-size: 1.08rem;
+        font-weight: 750;
+        letter-spacing: -0.015em;
     }
 
-    .metric-card {
-        padding: 1.2rem;
-        border-radius: 14px;
-        border: 1px solid #e5e7eb;
-        background: white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    .section-number {
+        color: var(--crm-green);
+        font-weight: 800;
+        margin-right: 0.45rem;
+        font-size: 0.82rem;
     }
 
-    .metric-label {
-        font-size: 0.85rem;
-        color: #6b7280;
+
+    /* ====================================
+       METRIC CARDS
+       ==================================== */
+
+    div[data-testid="stMetric"] {
+        background: var(--crm-surface);
+        border: 1px solid var(--crm-border);
+        border-radius: 16px;
+        padding: 1.15rem 1.25rem;
+        box-shadow: 0 5px 18px var(--crm-shadow);
+
+        transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            border-color 0.18s ease;
     }
 
-    .metric-value {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #111827;
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        border-color: var(--crm-green);
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.07);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: var(--crm-muted) !important;
+        font-size: 0.76rem !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: var(--crm-black) !important;
+        font-size: 1.8rem !important;
+        font-weight: 800 !important;
+    }
+
+
+    /* ====================================
+       INPUTS
+       ==================================== */
+
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div {
+        border-radius: 12px;
+        border: 1px solid var(--crm-border);
+        background: var(--crm-surface);
+
+        transition:
+            border-color 0.18s ease,
+            box-shadow 0.18s ease;
+    }
+
+    div[data-baseweb="input"] > div:focus-within,
+    div[data-baseweb="textarea"] > div:focus-within {
+        border-color: var(--crm-green);
+        box-shadow:
+            0 0 0 3px rgba(15, 107, 79, 0.12);
+    }
+
+    input,
+    textarea {
+        color: var(--crm-black) !important;
+    }
+
+
+    /* ====================================
+       FILE UPLOADER
+       ==================================== */
+
+    [data-testid="stFileUploader"] {
+        background: var(--crm-surface);
+        border: 1px dashed var(--crm-green);
+        border-radius: 16px;
+        padding: 0.5rem;
+
+        transition:
+            background 0.18s ease,
+            border-color 0.18s ease;
+    }
+
+    [data-testid="stFileUploader"]:hover {
+        background: var(--crm-green-soft);
+        border-color: var(--crm-green-hover);
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background: transparent !important;
+        border: none !important;
+    }
+
+
+    /* ====================================
+       BUTTONS
+       ==================================== */
+
+    .stButton > button {
+        min-height: 2.8rem;
+        border-radius: 11px;
+        border: 1px solid var(--crm-border);
+        background: var(--crm-white);
+        color: var(--crm-black);
+        font-weight: 650;
+
+        transition:
+            transform 0.16s ease,
+            box-shadow 0.16s ease,
+            border-color 0.16s ease,
+            background 0.16s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        border-color: var(--crm-green);
+        color: var(--crm-green);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+    }
+
+    .stButton > button[kind="primary"] {
+        background: var(--crm-green);
+        border-color: var(--crm-green);
+        color: #FFFFFF;
+        font-weight: 750;
+        box-shadow:
+            0 8px 20px rgba(15, 107, 79, 0.18);
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background: var(--crm-green-hover);
+        border-color: var(--crm-green-hover);
+        color: #FFFFFF;
+        box-shadow:
+            0 10px 24px rgba(15, 107, 79, 0.24);
+    }
+
+
+    /* ====================================
+       DOWNLOAD BUTTONS
+       ==================================== */
+
+    [data-testid="stDownloadButton"] button {
+        border-radius: 11px;
+        border: 1px solid var(--crm-border);
+        background: var(--crm-white);
+        color: var(--crm-black);
+        font-weight: 650;
+
+        transition:
+            transform 0.16s ease,
+            border-color 0.16s ease,
+            color 0.16s ease;
+    }
+
+    [data-testid="stDownloadButton"] button:hover {
+        transform: translateY(-1px);
+        border-color: var(--crm-green);
+        color: var(--crm-green);
+    }
+
+
+    /* ====================================
+       ALERTS
+       ==================================== */
+
+    [data-testid="stAlert"] {
+        border-radius: 13px;
     }
 
     .success-box {
-        padding: 1rem;
-        border-radius: 12px;
-        background: #ecfdf5;
-        border: 1px solid #a7f3d0;
-        color: #065f46;
+        padding: 1rem 1.15rem;
+        margin: 0.5rem 0 1.25rem;
+        border-radius: 13px;
+
+        background: var(--crm-green-soft);
+        border: 1px solid rgba(15, 107, 79, 0.22);
+        color: var(--crm-green);
+
+        line-height: 1.6;
     }
 
     .warning-box {
-        padding: 1rem;
+        padding: 1rem 1.15rem;
+        margin: 0.5rem 0 1.25rem;
+        border-radius: 13px;
+
+        background: var(--crm-surface);
+        border: 1px solid var(--crm-border);
+        color: var(--crm-black);
+
+        line-height: 1.6;
+    }
+
+
+    /* ====================================
+       DATAFRAME
+       ==================================== */
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--crm-border);
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+
+    /* ====================================
+       EXPANDER
+       ==================================== */
+
+    [data-testid="stExpander"] {
+        border: 1px solid var(--crm-border);
+        border-radius: 14px;
+        background: var(--crm-surface);
+        overflow: hidden;
+    }
+
+
+    /* ====================================
+       STATUS
+       ==================================== */
+
+    [data-testid="stStatusWidget"] {
+        border-radius: 14px;
+        border: 1px solid var(--crm-border);
+    }
+
+
+    /* ====================================
+       CODE BLOCK
+       ==================================== */
+
+    [data-testid="stCode"] {
         border-radius: 12px;
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-        color: #92400e;
+    }
+
+
+    /* ====================================
+       SIDEBAR
+       ==================================== */
+
+    [data-testid="stSidebar"] {
+        border-right: 1px solid var(--crm-border);
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: var(--crm-black);
+    }
+
+    .sidebar-brand {
+        padding: 0.5rem 0 1rem;
+    }
+
+    .sidebar-logo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        width: 34px;
+        height: 34px;
+        margin-bottom: 0.7rem;
+
+        border-radius: 10px;
+
+        background: var(--crm-green);
+        color: #FFFFFF;
+
+        font-weight: 800;
+    }
+
+    .sidebar-title {
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: var(--crm-black);
+    }
+
+    .sidebar-description {
+        margin-top: 0.45rem;
+        color: var(--crm-muted);
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+
+    .sidebar-footer {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+
+        border-top: 1px solid var(--crm-border);
+
+        color: var(--crm-muted);
+        font-size: 0.75rem;
+        line-height: 1.5;
+    }
+
+
+    /* ====================================
+       FOOTER
+       ==================================== */
+
+    .footer {
+        padding: 1.5rem 0 0;
+        color: var(--crm-muted);
+        font-size: 0.78rem;
+        text-align: center;
+    }
+
+
+    /* ====================================
+       DARK MODE
+       ==================================== */
+
+    @media (prefers-color-scheme: dark) {
+
+        :root {
+            --crm-green: #2A8F6B;
+            --crm-green-hover: #36A77E;
+            --crm-green-soft: #102A21;
+
+            --crm-black: #F5F7F6;
+            --crm-white: #0D0F0E;
+
+            --crm-border: #29312D;
+            --crm-muted: #9AA5A0;
+            --crm-surface: #151917;
+
+            --crm-shadow: rgba(0, 0, 0, 0.22);
+        }
+
+        .stApp {
+            background: #0D0F0E;
+        }
+
+        div[data-testid="stMetric"] {
+            background: #151917;
+            border-color: #29312D;
+        }
+
+        div[data-testid="stMetricLabel"] {
+            color: #9AA5A0 !important;
+        }
+
+        div[data-testid="stMetricValue"] {
+            color: #F5F7F6 !important;
+        }
+
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="textarea"] > div {
+            background: #151917;
+            border-color: #29312D;
+        }
+
+        input,
+        textarea {
+            color: #F5F7F6 !important;
+        }
+
+        .stButton > button {
+            background: #151917;
+            border-color: #29312D;
+            color: #F5F7F6;
+        }
+
+        .stButton > button:hover {
+            background: #1A201D;
+            color: #6ED1A8;
+            border-color: #2A8F6B;
+        }
+
+        [data-testid="stDownloadButton"] button {
+            background: #151917;
+            border-color: #29312D;
+            color: #F5F7F6;
+        }
+
+        [data-testid="stDownloadButton"] button:hover {
+            background: #1A201D;
+            color: #6ED1A8;
+            border-color: #2A8F6B;
+        }
+
+        [data-testid="stFileUploader"] {
+            background: #151917;
+            border-color: #2A8F6B;
+        }
+
+        [data-testid="stFileUploader"]:hover {
+            background: #102A21;
+        }
+
+        [data-testid="stExpander"],
+        [data-testid="stStatusWidget"] {
+            background: #151917;
+            border-color: #29312D;
+        }
+
+        [data-testid="stSidebar"] {
+            background: #0D0F0E;
+            border-color: #29312D;
+        }
+
+        .sidebar-title {
+            color: #F5F7F6;
+        }
+
+        .sidebar-description {
+            color: #9AA5A0;
+        }
+
+        .sidebar-footer {
+            color: #7F8984;
+            border-color: #29312D;
+        }
+
+        .section-title {
+            color: #F5F7F6;
+        }
+
+        .success-box {
+            background: #102A21;
+            border-color: rgba(42, 143, 107, 0.35);
+            color: #6ED1A8;
+        }
+
+        .warning-box {
+            background: #151917;
+            border-color: #29312D;
+            color: #F5F7F6;
+        }
+
+        [data-testid="stDataFrame"] {
+            border-color: #29312D;
+        }
+
+        .footer {
+            color: #7F8984;
+        }
+    }
+
+
+    /* ====================================
+       MOBILE
+       ==================================== */
+
+    @media (max-width: 768px) {
+
+        .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .section-title {
+            margin-top: 1.5rem;
+        }
     }
 
     </style>
@@ -148,17 +608,226 @@ if "uploaded_filename" not in st.session_state:
 # HERO
 # ========================================
 
-st.markdown(
+st.html(
     """
-    <div class="hero">
-        <h1>CRM Intelligence</h1>
-        <p>
-            Clean, validate, deduplicate and analyze your CRM data
-            before it enters your workflow.
-        </p>
+    <style>
+
+    .crm-hero {
+        position: relative;
+        overflow: hidden;
+
+        padding: 44px 48px;
+        margin: 0 0 40px 0;
+
+        border-radius: 24px;
+
+        background: #111111;
+        border: 1px solid #111111;
+
+        box-shadow:
+            0 18px 45px rgba(0, 0, 0, 0.09);
+    }
+
+    .crm-hero-content {
+        position: relative;
+        z-index: 2;
+        max-width: 760px;
+    }
+
+    .crm-hero-eyebrow {
+        display: inline-block;
+
+        margin-bottom: 16px;
+        padding: 6px 11px;
+
+        border-radius: 999px;
+
+        background: rgba(15, 107, 79, 0.18);
+        color: #72C9A8;
+
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+
+        font-size: 11px;
+        font-weight: 700;
+
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    .crm-hero-title {
+        margin: 0;
+
+        color: #FFFFFF;
+
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+
+        font-size: 44px;
+        line-height: 1.04;
+
+        letter-spacing: -0.045em;
+        font-weight: 800;
+    }
+
+    .crm-hero-description {
+        margin: 18px 0 0 0;
+
+        max-width: 650px;
+
+        color: #D1D5DB;
+
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+
+        font-size: 17px;
+        line-height: 1.65;
+    }
+
+    .crm-hero-orbit {
+        position: absolute;
+
+        width: 270px;
+        height: 270px;
+
+        right: -95px;
+        top: -115px;
+
+        border-radius: 50%;
+
+        border: 1px solid rgba(15, 107, 79, 0.45);
+
+        box-shadow:
+            0 0 0 35px rgba(15, 107, 79, 0.08),
+            0 0 0 70px rgba(15, 107, 79, 0.04);
+    }
+
+    .crm-hero-orbit::after {
+        content: "";
+
+        position: absolute;
+
+        width: 8px;
+        height: 8px;
+
+        right: 55px;
+        bottom: 42px;
+
+        border-radius: 50%;
+
+        background: #2A8F6B;
+
+        box-shadow:
+            0 0 0 7px rgba(42, 143, 107, 0.12),
+            0 0 24px rgba(42, 143, 107, 0.5);
+    }
+
+
+    /* ====================================
+       DARK MODE HERO
+       ==================================== */
+
+    @media (prefers-color-scheme: dark) {
+
+        .crm-hero {
+            background: #151917;
+            border-color: #29312D;
+
+            box-shadow:
+                0 18px 45px rgba(0, 0, 0, 0.28);
+        }
+
+        .crm-hero-title {
+            color: #F5F7F6;
+        }
+
+        .crm-hero-description {
+            color: #AEB8B3;
+        }
+
+        .crm-hero-eyebrow {
+            color: #6ED1A8;
+            background: rgba(42, 143, 107, 0.16);
+        }
+
+        .crm-hero-orbit {
+            border-color: rgba(42, 143, 107, 0.42);
+
+            box-shadow:
+                0 0 0 35px rgba(42, 143, 107, 0.08),
+                0 0 0 70px rgba(42, 143, 107, 0.04);
+        }
+
+        .crm-hero-orbit::after {
+            background: #36A77E;
+        }
+    }
+
+
+    /* ====================================
+       MOBILE HERO
+       ==================================== */
+
+    @media (max-width: 768px) {
+
+        .crm-hero {
+            padding: 32px 24px;
+            border-radius: 19px;
+        }
+
+        .crm-hero-title {
+            font-size: 34px;
+        }
+
+        .crm-hero-description {
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .crm-hero-orbit {
+            width: 190px;
+            height: 190px;
+
+            right: -85px;
+            top: -80px;
+        }
+    }
+
+    </style>
+
+    <div class="crm-hero">
+
+        <div class="crm-hero-content">
+
+            <div class="crm-hero-eyebrow">
+                CRM Data Intelligence
+            </div>
+
+            <div class="crm-hero-title">
+                Turn messy CRM data<br>
+                into trusted data.
+            </div>
+
+            <div class="crm-hero-description">
+                Clean, validate, deduplicate and analyze your CRM data
+                before it enters your workflow.
+            </div>
+
+        </div>
+
+        <div class="crm-hero-orbit"></div>
+
     </div>
-    """,
-    unsafe_allow_html=True,
+    """
 )
 
 
@@ -168,18 +837,45 @@ st.markdown(
 
 with st.sidebar:
 
-    st.header("CRM Cleanup")
+    st.markdown(
+        """
+        <div class="sidebar-brand">
+            <div class="sidebar-logo">◆</div>
 
-    st.write(
-        "Upload a customer or lead dataset "
-        "to begin the cleanup process."
+            <div class="sidebar-title">
+                CRM Intelligence
+            </div>
+
+            <div class="sidebar-description">
+                Clean and prepare customer data
+                for reliable CRM operations.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     st.divider()
 
-    st.caption(
-        "Your CRM data is processed through "
-        "the existing cleanup and intelligence engine."
+    st.markdown(
+        """
+        <div class="sidebar-description">
+            Your dataset passes through the existing
+            cleanup, validation, duplicate detection,
+            CRM and intelligence engine.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="sidebar-footer">
+            Data processing is handled by your
+            existing CRM automation pipeline.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -188,7 +884,12 @@ with st.sidebar:
 # ========================================
 
 st.markdown(
-    '<div class="section-title">1. Client information</div>',
+    """
+    <div class="section-title">
+        <span class="section-number">01</span>
+        Client information
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -214,7 +915,12 @@ with dataset_col:
 # ========================================
 
 st.markdown(
-    '<div class="section-title">2. Upload CRM dataset</div>',
+    """
+    <div class="section-title">
+        <span class="section-number">02</span>
+        Upload CRM dataset
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -311,12 +1017,17 @@ if dataframe is not None:
 # ========================================
 
 st.markdown(
-    '<div class="section-title">3. Run CRM intelligence</div>',
+    """
+    <div class="section-title">
+        <span class="section-number">03</span>
+        Run CRM intelligence
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
 run_cleanup = st.button(
-    "🚀 Run CRM Cleanup",
+    "Run CRM Cleanup",
     type="primary",
     use_container_width=True,
 )
@@ -390,10 +1101,6 @@ if run_cleanup:
             expanded=True,
         ) as status:
 
-            # ----------------------------
-            # CREATE RUN DIRECTORY
-            # ----------------------------
-
             st.write(
                 "Creating cleanup run..."
             )
@@ -402,10 +1109,6 @@ if run_cleanup:
                 client_name
             )
 
-
-            # ----------------------------
-            # STANDARDIZE
-            # ----------------------------
 
             st.write(
                 "Standardizing CRM fields..."
@@ -418,10 +1121,6 @@ if run_cleanup:
             )
 
 
-            # ----------------------------
-            # VALIDATE
-            # ----------------------------
-
             st.write(
                 "Validating records..."
             )
@@ -433,10 +1132,6 @@ if run_cleanup:
             )
 
 
-            # ----------------------------
-            # DUPLICATE DETECTION
-            # ----------------------------
-
             st.write(
                 "Detecting duplicate records..."
             )
@@ -447,10 +1142,6 @@ if run_cleanup:
                 )
             )
 
-
-            # ----------------------------
-            # QUALITY METRICS
-            # ----------------------------
 
             st.write(
                 "Calculating data quality..."
@@ -465,10 +1156,6 @@ if run_cleanup:
             )
 
 
-            # ----------------------------
-            # EXPORT + CRM + AI + REPORT
-            # ----------------------------
-
             st.write(
                 "Saving CRM records and generating reports..."
             )
@@ -481,10 +1168,6 @@ if run_cleanup:
                 source_filename,
             )
 
-
-            # ----------------------------
-            # COMPLETE
-            # ----------------------------
 
             status.update(
                 label="CRM processing completed.",
@@ -547,7 +1230,11 @@ if session_result is not None:
 
 
     st.markdown(
-        '<div class="section-title">CRM intelligence results</div>',
+        """
+        <div class="section-title">
+            CRM intelligence results
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -596,7 +1283,11 @@ if session_result is not None:
     # ====================================
 
     st.markdown(
-        '<div class="section-title">Data quality health</div>',
+        """
+        <div class="section-title">
+            Data quality health
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -677,7 +1368,11 @@ if session_result is not None:
     # ====================================
 
     st.markdown(
-        '<div class="section-title">Record breakdown</div>',
+        """
+        <div class="section-title">
+            Record breakdown
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -730,7 +1425,11 @@ if session_result is not None:
 
 
     st.markdown(
-        '<div class="section-title">AI analysis</div>',
+        """
+        <div class="section-title">
+            AI analysis
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -785,7 +1484,11 @@ if session_result is not None:
     if delivery_package:
 
         st.markdown(
-            '<div class="section-title">Client delivery</div>',
+            """
+            <div class="section-title">
+                Client delivery
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
@@ -849,7 +1552,7 @@ if session_result is not None:
                 ) as file:
 
                     st.download_button(
-                        "📊 Download HTML Report",
+                        "Download HTML Report",
                         data=file.read(),
                         file_name="CRM Intelligence Report.html",
                         mime="text/html",
@@ -868,7 +1571,7 @@ if session_result is not None:
                 ) as file:
 
                     st.download_button(
-                        "📁 Download Cleaned Dataset",
+                        "Download Cleaned Dataset",
                         data=file.read(),
                         file_name="Cleaned Dataset.csv",
                         mime="text/csv",
@@ -889,7 +1592,7 @@ if session_result is not None:
                 ) as file:
 
                     st.download_button(
-                        "📄 Download TXT Report",
+                        "Download TXT Report",
                         data=file.read(),
                         file_name="CRM Intelligence Report.txt",
                         mime="text/plain",
@@ -908,7 +1611,7 @@ if session_result is not None:
                 ) as file:
 
                     st.download_button(
-                        "📋 Download Delivery Summary",
+                        "Download Delivery Summary",
                         data=file.read(),
                         file_name="Delivery Summary.txt",
                         mime="text/plain",
@@ -921,7 +1624,11 @@ if session_result is not None:
     # ====================================
 
     st.markdown(
-        '<div class="section-title">Run information</div>',
+        """
+        <div class="section-title">
+            Run information
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -957,7 +1664,12 @@ if session_result is not None:
 st.divider()
 
 
-st.caption(
-    "CRM Intelligence • Data cleaning • Validation • "
-    "Duplicate detection • AI analysis • Reporting"
+st.markdown(
+    """
+    <div class="footer">
+        CRM Intelligence · Data cleaning · Validation ·
+        Duplicate detection · AI analysis · Reporting
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
