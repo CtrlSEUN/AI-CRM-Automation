@@ -7,4 +7,4 @@ __pycache__/
 data/*.db
 
 # Generated output
-output/
+output/data/
