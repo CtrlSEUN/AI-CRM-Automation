@@ -8,3 +8,6 @@ data/*.db
 
 # Generated output
 output/data/
+
+data/
+output/
