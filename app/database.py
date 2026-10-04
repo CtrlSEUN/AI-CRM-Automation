@@ -21,6 +21,15 @@ ALLOWED_PRIORITIES = {
     "HIGH"
 }
 
+AI_CORE_FIELDS = (
+    "lead_type",
+    "intent",
+    "product",
+    "priority",
+    "lead_score",
+    "summary"
+)
+
 
 def get_connection():
     """
@@ -1341,13 +1350,20 @@ def get_dashboard_stats():
 
 def get_crm_intelligence_report(batch_id=None):
     """
-    Build a structured CRM intelligence dataset for reporting.
+    Build a structured CRM intelligence report.
 
-    If batch_id is provided, only leads from that import batch are included.
-    If batch_id is None, all CRM leads are included.
+    When batch_id is supplied, the report is STRICTLY scoped to that
+    import batch. It will never silently fall back to all CRM leads.
 
-    This function does not call any external AI service.
-    It only analyzes data already stored in SQLite.
+    When batch_id is None, the report covers the entire CRM.
+
+    AI analysis is considered complete only when all core AI fields exist:
+        lead_type
+        intent
+        product
+        priority
+        lead_score
+        summary
     """
 
     if batch_id is not None:
@@ -1362,6 +1378,7 @@ def get_crm_intelligence_report(batch_id=None):
         batch_info = None
 
         if batch_id is not None:
+
             cursor.execute("""
                 SELECT
                     id,
@@ -1392,12 +1409,16 @@ def get_crm_intelligence_report(batch_id=None):
                 "created_at": batch[7]
             }
 
-        where_clause = ""
-        parameters = ()
-
         if batch_id is not None:
             where_clause = "WHERE import_batch_id = ?"
             parameters = (batch_id,)
+        else:
+            where_clause = ""
+            parameters = ()
+
+        # ---------------------------------------------------------
+        # TOTAL LEADS
+        # ---------------------------------------------------------
 
         cursor.execute(
             f"""
@@ -1410,26 +1431,37 @@ def get_crm_intelligence_report(batch_id=None):
 
         total_leads = cursor.fetchone()[0]
 
+        # ---------------------------------------------------------
+        # STATUS COUNTS
+        # ---------------------------------------------------------
+
         status_counts = {}
 
         for status in sorted(ALLOWED_STATUSES):
+
             query = f"""
                 SELECT COUNT(*)
                 FROM leads
                 {where_clause}
-                {"AND" if where_clause else "WHERE"} status = ?
+                {"AND" if where_clause else "WHERE"}
+                status = ?
             """
 
-            query_parameters = (
+            cursor.execute(
+                query,
                 parameters + (status,)
             )
 
-            cursor.execute(query, query_parameters)
             status_counts[status] = cursor.fetchone()[0]
+
+        # ---------------------------------------------------------
+        # PRIORITY COUNTS
+        # ---------------------------------------------------------
 
         priority_counts = {}
 
         for priority in sorted(ALLOWED_PRIORITIES):
+
             query = f"""
                 SELECT COUNT(*)
                 FROM leads
@@ -1438,12 +1470,16 @@ def get_crm_intelligence_report(batch_id=None):
                 UPPER(TRIM(priority)) = ?
             """
 
-            query_parameters = (
+            cursor.execute(
+                query,
                 parameters + (priority,)
             )
 
-            cursor.execute(query, query_parameters)
             priority_counts[priority] = cursor.fetchone()[0]
+
+        # ---------------------------------------------------------
+        # DUPLICATES
+        # ---------------------------------------------------------
 
         cursor.execute(
             f"""
@@ -1465,7 +1501,8 @@ def get_crm_intelligence_report(batch_id=None):
             {where_clause}
             {"AND" if where_clause else "WHERE"}
             duplicate = 1
-            AND duplicate_reason LIKE 'Manual duplicate review required%'
+            AND duplicate_reason LIKE
+                'Manual duplicate review required%'
             """,
             parameters
         )
@@ -1476,6 +1513,10 @@ def get_crm_intelligence_report(batch_id=None):
             0,
             duplicate_records - review_required
         )
+
+        # ---------------------------------------------------------
+        # DATA QUALITY
+        # ---------------------------------------------------------
 
         missing_email_query = f"""
             SELECT COUNT(*)
@@ -1537,13 +1578,39 @@ def get_crm_intelligence_report(batch_id=None):
 
         missing_message = cursor.fetchone()[0]
 
+        # ---------------------------------------------------------
+        # AI ANALYSIS
+        # ---------------------------------------------------------
+        #
+        # IMPORTANT:
+        # A lead is "AI analyzed" only when all core AI fields
+        # required by the CRM intelligence layer are populated.
+        #
+        # quantity and timeline are intentionally excluded because
+        # they are allowed to be None.
+        # ---------------------------------------------------------
+
+        ai_complete_condition = """
+            lead_type IS NOT NULL
+            AND TRIM(lead_type) != ''
+            AND intent IS NOT NULL
+            AND TRIM(intent) != ''
+            AND product IS NOT NULL
+            AND TRIM(product) != ''
+            AND priority IS NOT NULL
+            AND TRIM(priority) != ''
+            AND lead_score IS NOT NULL
+            AND summary IS NOT NULL
+            AND TRIM(summary) != ''
+        """
+
         cursor.execute(
             f"""
             SELECT AVG(lead_score)
             FROM leads
             {where_clause}
             {"AND" if where_clause else "WHERE"}
-            lead_score IS NOT NULL
+            {ai_complete_condition}
             """,
             parameters
         )
@@ -1559,12 +1626,21 @@ def get_crm_intelligence_report(batch_id=None):
             FROM leads
             {where_clause}
             {"AND" if where_clause else "WHERE"}
-            lead_score IS NOT NULL
+            {ai_complete_condition}
             """,
             parameters
         )
 
         analyzed_leads = cursor.fetchone()[0]
+
+        unanalyzed_leads = max(
+            total_leads - analyzed_leads,
+            0
+        )
+
+        # ---------------------------------------------------------
+        # HIGH PRIORITY
+        # ---------------------------------------------------------
 
         cursor.execute(
             f"""
@@ -1572,12 +1648,17 @@ def get_crm_intelligence_report(batch_id=None):
             FROM leads
             {where_clause}
             {"AND" if where_clause else "WHERE"}
-            priority = 'HIGH'
+            UPPER(TRIM(priority)) = 'HIGH'
+            AND {ai_complete_condition}
             """,
             parameters
         )
 
         high_priority_leads = cursor.fetchone()[0]
+
+        # ---------------------------------------------------------
+        # TOP PRODUCTS
+        # ---------------------------------------------------------
 
         cursor.execute(
             f"""
@@ -1587,9 +1668,7 @@ def get_crm_intelligence_report(batch_id=None):
             FROM leads
             {where_clause}
             {"AND" if where_clause else "WHERE"}
-            product IS NOT NULL
-            AND TRIM(product) != ''
-            AND LOWER(TRIM(product)) != 'unknown'
+            {ai_complete_condition}
             GROUP BY LOWER(TRIM(product))
             ORDER BY demand_count DESC
             LIMIT 10
@@ -1605,6 +1684,10 @@ def get_crm_intelligence_report(batch_id=None):
             for row in cursor.fetchall()
         ]
 
+        # ---------------------------------------------------------
+        # INTENT DISTRIBUTION
+        # ---------------------------------------------------------
+
         cursor.execute(
             f"""
             SELECT
@@ -1613,8 +1696,7 @@ def get_crm_intelligence_report(batch_id=None):
             FROM leads
             {where_clause}
             {"AND" if where_clause else "WHERE"}
-            intent IS NOT NULL
-            AND TRIM(intent) != ''
+            {ai_complete_condition}
             GROUP BY LOWER(TRIM(intent))
             ORDER BY intent_count DESC
             LIMIT 10
@@ -1630,6 +1712,10 @@ def get_crm_intelligence_report(batch_id=None):
             for row in cursor.fetchall()
         ]
 
+        # ---------------------------------------------------------
+        # CONVERSION
+        # ---------------------------------------------------------
+
         converted_leads = status_counts["CONVERTED"]
 
         conversion_rate = (
@@ -1637,6 +1723,10 @@ def get_crm_intelligence_report(batch_id=None):
             if total_leads > 0
             else 0
         )
+
+        # ---------------------------------------------------------
+        # QUALITY METRICS
+        # ---------------------------------------------------------
 
         missing_information_total = (
             missing_phone
@@ -1646,7 +1736,8 @@ def get_crm_intelligence_report(batch_id=None):
 
         data_quality_rate = (
             (
-                (total_leads - duplicate_records) / total_leads
+                (total_leads - duplicate_records)
+                / total_leads
             ) * 100
             if total_leads > 0
             else 100
@@ -1654,11 +1745,13 @@ def get_crm_intelligence_report(batch_id=None):
 
         return {
             "batch": batch_info,
+
             "scope": (
                 "IMPORT_BATCH"
                 if batch_id is not None
                 else "ALL_CRM_LEADS"
             ),
+
             "generated_at": None,
 
             "database_overview": {
@@ -1684,7 +1777,7 @@ def get_crm_intelligence_report(batch_id=None):
                 "high_priority_leads": high_priority_leads,
                 "average_lead_score": average_lead_score,
                 "analyzed_leads": analyzed_leads,
-                "unanalyzed_leads": total_leads - analyzed_leads
+                "unanalyzed_leads": unanalyzed_leads
             },
 
             "demand_insights": {
