@@ -918,6 +918,190 @@ def render_opportunity_table(
     )
 
 
+def get_recommended_actions(
+    batch_id,
+):
+    """Return lead-level recommended actions for one CRM batch."""
+
+    if not batch_id:
+        return []
+
+    connection = None
+
+    try:
+        connection = get_connection()
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                name,
+                company,
+                priority,
+                lead_score,
+                recommended_action,
+                follow_up_timing
+            FROM leads
+            WHERE import_batch_id = ?
+              AND recommended_action IS NOT NULL
+              AND TRIM(recommended_action) != ''
+            ORDER BY
+                CASE UPPER(priority)
+                    WHEN 'HIGH' THEN 1
+                    WHEN 'MEDIUM' THEN 2
+                    WHEN 'LOW' THEN 3
+                    ELSE 4
+                END,
+                lead_score DESC,
+                id ASC
+            LIMIT 10
+            """,
+            (
+                batch_id,
+            ),
+        )
+
+        return cursor.fetchall()
+
+    except Exception:
+        return []
+
+    finally:
+
+        if connection:
+
+            try:
+                connection.close()
+
+            except Exception:
+                pass
+
+
+def render_recommended_actions(
+    actions,
+):
+    """Render lead-level recommended next actions."""
+
+    if not actions:
+        return
+
+    rows = ""
+
+    for row in actions:
+
+        (
+            lead_id,
+            name,
+            company,
+            priority,
+            lead_score,
+            recommended_action,
+            follow_up_timing,
+        ) = row
+
+        priority_text = str(
+            priority or "UNKNOWN"
+        ).upper()
+
+        if priority_text == "HIGH":
+
+            badge_class = (
+                "opportunity-high"
+            )
+
+        elif priority_text == "MEDIUM":
+
+            badge_class = (
+                "opportunity-medium"
+            )
+
+        else:
+
+            badge_class = (
+                "opportunity-low"
+            )
+
+        rows += f"""
+        <div class="opportunity-row">
+
+            <div class="opportunity-main">
+
+                <div class="opportunity-name">
+                    {escape(
+                        str(
+                            name or
+                            "Unknown lead"
+                        )
+                    )}
+                </div>
+
+                <div class="opportunity-company">
+                    {escape(
+                        str(
+                            company or
+                            "Unknown company"
+                        )
+                    )}
+                </div>
+
+            </div>
+
+            <div class="opportunity-detail">
+                {escape(
+                    str(
+                        recommended_action or
+                        "No recommendation"
+                    )
+                )}
+            </div>
+
+            <div class="opportunity-detail">
+                {escape(
+                    str(
+                        follow_up_timing or
+                        "Not specified"
+                    )
+                )}
+            </div>
+
+            <div class="opportunity-priority {badge_class}">
+                {escape(priority_text)}
+            </div>
+
+            <div class="opportunity-score">
+                {safe_int(lead_score)}
+            </div>
+
+        </div>
+        """
+
+    st.html(
+        f"""
+        <div class="dashboard-card opportunity-card">
+
+            <div class="dashboard-card-title">
+                Recommended next actions
+            </div>
+
+            <div class="opportunity-header">
+
+                <span>Lead</span>
+                <span>Recommended action</span>
+                <span>Follow-up</span>
+                <span>Priority</span>
+                <span>Score</span>
+
+            </div>
+
+            {rows}
+
+        </div>
+        """
+    )
+
+
 def extract_recommendation_items(
     report,
 ):
@@ -5788,6 +5972,35 @@ if session_result is not None:
 
                 render_opportunity_table(
                     opportunities
+                )
+
+
+            # ====================================
+            # RECOMMENDED NEXT ACTIONS
+            # ====================================
+
+            recommended_actions = (
+                get_recommended_actions(
+                    intelligence_batch_id
+                )
+            )
+
+            if recommended_actions:
+
+                st.html(
+                    """
+                    <div class="section-title">
+                        Recommended next actions
+                    </div>
+                    """
+                )
+
+                st.caption(
+                    "AI-generated next steps and follow-up timing for leads in this intelligence set."
+                )
+
+                render_recommended_actions(
+                    recommended_actions
                 )
 
 

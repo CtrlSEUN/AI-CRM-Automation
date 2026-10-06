@@ -80,6 +80,8 @@ def create_database():
                 priority TEXT,
                 lead_score INTEGER,
                 summary TEXT,
+                recommended_action TEXT,
+                follow_up_timing TEXT,
                 status TEXT DEFAULT 'NEW'
             )
         """)
@@ -91,6 +93,18 @@ def create_database():
             cursor.execute("""
                 ALTER TABLE leads
                 ADD COLUMN status TEXT DEFAULT 'NEW'
+            """)
+
+        if "recommended_action" not in lead_columns:
+            cursor.execute("""
+                ALTER TABLE leads
+                ADD COLUMN recommended_action TEXT
+            """)
+
+        if "follow_up_timing" not in lead_columns:
+            cursor.execute("""
+                ALTER TABLE leads
+                ADD COLUMN follow_up_timing TEXT
             """)
 
         cursor.execute("""
@@ -298,7 +312,9 @@ def save_lead_analysis(lead_id, analysis):
         "timeline",
         "priority",
         "lead_score",
-        "summary"
+        "summary",
+        "recommended_action",
+        "follow_up_timing"
     }
 
     missing_fields = required_fields - set(analysis.keys())
@@ -362,7 +378,9 @@ def save_lead_analysis(lead_id, analysis):
                 timeline = ?,
                 priority = ?,
                 lead_score = ?,
-                summary = ?
+                summary = ?,
+                recommended_action = ?,
+                follow_up_timing = ?
             WHERE id = ?
         """, (
             analysis.get("lead_type"),
@@ -373,6 +391,8 @@ def save_lead_analysis(lead_id, analysis):
             priority,
             lead_score,
             analysis.get("summary"),
+            analysis.get("recommended_action"),
+            analysis.get("follow_up_timing"),
             lead_id
         ))
 

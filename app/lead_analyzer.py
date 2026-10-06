@@ -37,6 +37,8 @@ REQUIRED_FIELDS = [
     "priority",
     "lead_score",
     "summary",
+    "recommended_action",
+    "follow_up_timing",
 ]
 
 # API reliability settings
@@ -162,6 +164,8 @@ def validate_analysis(analysis):
         "product",
         "timeline",
         "summary",
+        "recommended_action",
+        "follow_up_timing",
     ]
 
     for field in text_fields:
@@ -386,6 +390,31 @@ from the customer's message.
 
 DO NOT invent facts.
 
+9. RECOMMENDED ACTION
+Recommend the most appropriate next action for the salesperson
+based ONLY on the customer's message, intent, priority,
+and buying signals.
+
+Examples:
+- Strong purchase intent → "Contact the customer to confirm the order."
+- Pricing request → "Send pricing information and clarify requirements."
+- Information request → "Send relevant product information."
+- Support request → "Follow up to understand and resolve the issue."
+- Early research → "Send useful information and continue nurturing the lead."
+
+Keep the recommendation short and practical.
+
+10. FOLLOW-UP TIMING
+Recommend when the salesperson should follow up based ONLY
+on the urgency and buying signals in the customer's message.
+
+Examples:
+- Urgent purchase or short deadline → "Within 24 hours"
+- Clear interest without urgency → "Within 2-3 days"
+- Early research or weak interest → "Within 1 week"
+- No meaningful follow-up need → "No immediate follow-up"
+
+Do not invent deadlines that are not supported by the customer's message.
 
 RETURN ONLY VALID JSON.
 
@@ -399,7 +428,9 @@ Use exactly this structure:
     "timeline": "Within two weeks",
     "priority": "HIGH",
     "lead_score": 85,
-    "summary": "Customer requests 20 office chairs with delivery within two weeks."
+    "summary": "Customer requests 20 office chairs with delivery within two weeks.",
+    "recommended_action": "Contact the customer to confirm the order.",
+    "follow_up_timing": "Within 24 hours"
 }}
 
 The example values above are ONLY examples of the format.
