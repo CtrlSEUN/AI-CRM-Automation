@@ -19,6 +19,8 @@ from app.database import (
     get_crm_intelligence_report,
     get_connection,
     save_lead_analysis,
+    get_lead_action_status,
+    update_lead_action_status,
 )
 
 from app.lead_analyzer import analyze_lead
@@ -982,12 +984,17 @@ def get_recommended_actions(
 def render_recommended_actions(
     actions,
 ):
-    """Render lead-level recommended next actions."""
+    """Render lead-level recommended next actions with action tracking."""
 
     if not actions:
         return
 
-    rows = ""
+    status_options = [
+        "PENDING",
+        "IN PROGRESS",
+        "COMPLETED",
+        "SKIPPED",
+    ]
 
     for row in actions:
 
@@ -1000,6 +1007,22 @@ def render_recommended_actions(
             recommended_action,
             follow_up_timing,
         ) = row
+
+        current_state = get_lead_action_status(
+            safe_int(lead_id)
+        )
+
+        current_status = (
+            current_state.get("action_status", "PENDING")
+            if current_state
+            else "PENDING"
+        )
+
+        completed_at = (
+            current_state.get("action_completed_at")
+            if current_state
+            else None
+        )
 
         priority_text = str(
             priority or "UNKNOWN"
@@ -1023,83 +1046,117 @@ def render_recommended_actions(
                 "opportunity-low"
             )
 
-        rows += f"""
-        <div class="opportunity-row">
+        st.html(
+            f"""
+            <div class="dashboard-card opportunity-card">
 
-            <div class="opportunity-main">
+                <div class="opportunity-row">
 
-                <div class="opportunity-name">
-                    {escape(
-                        str(
-                            name or
-                            "Unknown lead"
-                        )
-                    )}
+                    <div class="opportunity-main">
+
+                        <div class="opportunity-name">
+                            {escape(
+                                str(
+                                    name or
+                                    "Unknown lead"
+                                )
+                            )}
+                        </div>
+
+                        <div class="opportunity-company">
+                            {escape(
+                                str(
+                                    company or
+                                    "Unknown company"
+                                )
+                            )}
+                        </div>
+
+                    </div>
+
+                    <div class="opportunity-detail">
+                        <strong>Recommended action</strong><br>
+                        {escape(
+                            str(
+                                recommended_action or
+                                "No recommendation"
+                            )
+                        )}
+                    </div>
+
+                    <div class="opportunity-detail">
+                        <strong>Follow-up</strong><br>
+                        {escape(
+                            str(
+                                follow_up_timing or
+                                "Not specified"
+                            )
+                        )}
+                    </div>
+
+                    <div class="opportunity-priority {badge_class}">
+                        {escape(priority_text)}
+                    </div>
+
+                    <div class="opportunity-score">
+                        {safe_int(lead_score)}
+                    </div>
+
                 </div>
 
-                <div class="opportunity-company">
-                    {escape(
-                        str(
-                            company or
-                            "Unknown company"
-                        )
-                    )}
-                </div>
-
             </div>
+            """
+        )
 
-            <div class="opportunity-detail">
-                {escape(
-                    str(
-                        recommended_action or
-                        "No recommendation"
+        selected_index = (
+            status_options.index(current_status)
+            if current_status in status_options
+            else 0
+        )
+
+        selected_status = st.selectbox(
+            "Action status",
+            status_options,
+            index=selected_index,
+            key=f"action_status_{lead_id}",
+        )
+
+        if selected_status != current_status:
+
+            try:
+
+                updated = update_lead_action_status(
+                    safe_int(lead_id),
+                    selected_status,
+                )
+
+                if updated:
+
+                    st.success(
+                        f"Action status updated to {selected_status}."
                     )
-                )}
-            </div>
 
-            <div class="opportunity-detail">
-                {escape(
-                    str(
-                        follow_up_timing or
-                        "Not specified"
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Could not update the action status."
                     )
-                )}
-            </div>
 
-            <div class="opportunity-priority {badge_class}">
-                {escape(priority_text)}
-            </div>
+            except Exception as exc:
 
-            <div class="opportunity-score">
-                {safe_int(lead_score)}
-            </div>
+                st.error(
+                    f"Action status update failed: {exc}"
+                )
 
-        </div>
-        """
+        if completed_at:
 
-    st.html(
-        f"""
-        <div class="dashboard-card opportunity-card">
+            st.caption(
+                f"Completed at: {completed_at}"
+            )
 
-            <div class="dashboard-card-title">
-                Recommended next actions
-            </div>
-
-            <div class="opportunity-header">
-
-                <span>Lead</span>
-                <span>Recommended action</span>
-                <span>Follow-up</span>
-                <span>Priority</span>
-                <span>Score</span>
-
-            </div>
-
-            {rows}
-
-        </div>
-        """
-    )
+        st.divider()
 
 
 def extract_recommendation_items(

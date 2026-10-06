@@ -82,6 +82,8 @@ def create_database():
                 summary TEXT,
                 recommended_action TEXT,
                 follow_up_timing TEXT,
+                action_status TEXT DEFAULT 'PENDING',
+                action_completed_at TEXT,
                 status TEXT DEFAULT 'NEW'
             )
         """)
@@ -105,6 +107,18 @@ def create_database():
             cursor.execute("""
                 ALTER TABLE leads
                 ADD COLUMN follow_up_timing TEXT
+            """)
+
+        if "action_status" not in lead_columns:
+            cursor.execute("""
+                ALTER TABLE leads
+                ADD COLUMN action_status TEXT DEFAULT 'PENDING'
+            """)
+
+        if "action_completed_at" not in lead_columns:
+            cursor.execute("""
+                ALTER TABLE leads
+                ADD COLUMN action_completed_at TEXT
             """)
 
         cursor.execute("""
@@ -1203,6 +1217,121 @@ def update_lead_status(lead_id, status):
             lead_id,
             "STATUS_CHANGED",
             f"Lead status changed to {status}."
+        ))
+
+        conn.commit()
+
+        return True
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+
+def get_lead_action_status(lead_id):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positiveinteger.")
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                id,
+                action_status,
+                action_completed_at
+            FROM leads
+            WHERE id = ?
+        """, (lead_id,))
+
+        lead = cursor.fetchone()
+
+        if not lead:
+            return None
+
+        return {
+            "id": lead[0],
+            "action_status": lead[1] or "PENDING",
+            "action_completed_at": lead[2]
+        }
+
+    finally:
+        conn.close()
+
+
+def update_lead_action_status(lead_id, action_status):
+    if not isinstance(lead_id, int) or lead_id <= 0:
+        raise ValueError("lead_id must be a positiveinteger.")
+
+    action_status = str(action_status or "").strip().upper()
+
+    allowed_action_statuses = {
+        "PENDING",
+        "IN PROGRESS",
+        "COMPLETED",
+        "SKIPPED"
+    }
+
+    if action_status not in allowed_action_statuses:
+        raise ValueError(
+            "Invalid action status. Allowed values: "
+            f"{sorted(allowed_action_statuses)}"
+        )
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, action_status
+            FROM leads
+            WHERE id = ?
+        """, (lead_id,))
+
+        lead = cursor.fetchone()
+
+        if not lead:
+            conn.rollback()
+            return False
+
+        from datetime import datetime
+
+        completed_at = (
+            datetime.now().isoformat(timespec="seconds")
+            if action_status == "COMPLETED"
+            else None
+        )
+
+        cursor.execute("""
+            UPDATE leads
+            SET
+                action_status = ?,
+                action_completed_at = ?
+            WHERE id = ?
+        """, (
+            action_status,
+            completed_at,
+            lead_id
+        ))
+
+        cursor.execute("""
+            INSERT INTO lead_activities (
+                lead_id,
+                activity_type,
+                description
+            )
+            VALUES (?, ?, ?)
+        """, (
+            lead_id,
+            "ACTION_STATUS_CHANGED",
+            f"Recommended action status changed to {action_status}."
         ))
 
         conn.commit()
