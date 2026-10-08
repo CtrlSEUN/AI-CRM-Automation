@@ -4,10 +4,14 @@ __pycache__/
 *.pyc
 
 # Local database
-data/*.db
+*.db
+*.db.*
+
+# Local backups
+*.backup
+*.before_*
+*_backup.py
+*_backup.txt
 
 # Generated output
-output/data/
-
-data/
 output/
