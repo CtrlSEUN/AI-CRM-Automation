@@ -21,6 +21,7 @@ from app.database import (
     save_lead_analysis,
     get_lead_action_status,
     update_lead_action_status,
+    get_follow_up_queue,
 )
 
 from app.lead_analyzer import analyze_lead
@@ -979,6 +980,117 @@ def get_recommended_actions(
 
             except Exception:
                 pass
+
+
+def render_follow_up_queue(queue):
+    """Render active leads that need salesperson follow-up."""
+
+    if not queue:
+        st.info("No leads currently need follow-up.")
+        return
+
+    for row in queue:
+
+        (
+            lead_id,
+            name,
+            company,
+            priority,
+            lead_score,
+            recommended_action,
+            follow_up_timing,
+            action_status,
+            action_completed_at,
+            lead_status,
+        ) = row
+
+        priority_text = str(
+            priority or "LOW"
+        ).upper()
+
+        if priority_text == "HIGH":
+            badge_class = "opportunity-high"
+        elif priority_text == "MEDIUM":
+            badge_class = "opportunity-medium"
+        else:
+            badge_class = "opportunity-low"
+
+        st.html(
+            f"""
+            <div class="dashboard-card opportunity-card">
+
+                <div class="opportunity-row">
+
+                    <div class="opportunity-main">
+
+                        <div class="opportunity-name">
+                            {escape(
+                                str(
+                                    name or
+                                    "Unknown lead"
+                                )
+                            )}
+                        </div>
+
+                        <div class="opportunity-company">
+                            {escape(
+                                str(
+                                    company or
+                                    "Unknown company"
+                                )
+                            )}
+                        </div>
+
+                    </div>
+
+                    <div class="opportunity-detail">
+                        <strong>Recommended action</strong><br>
+                        {escape(
+                            str(
+                                recommended_action or
+                                "No recommendation"
+                            )
+                        )}
+                    </div>
+
+                    <div class="opportunity-detail">
+                        <strong>Follow-up</strong><br>
+                        {escape(
+                            str(
+                                follow_up_timing or
+                                "Not specified"
+                            )
+                        )}
+                    </div>
+
+                    <div class="opportunity-priority {badge_class}">
+                        {escape(priority_text)}
+                    </div>
+
+                    <div class="opportunity-score">
+                        {safe_int(lead_score)}
+                    </div>
+
+                </div>
+
+            </div>
+            """
+        )
+
+        status_text = str(
+            action_status or "PENDING"
+        ).upper()
+
+        if action_completed_at:
+            st.caption(
+                f"Completed at: {action_completed_at}"
+            )
+        else:
+            st.caption(
+                f"Action status: {status_text}"
+            )
+
+        st.divider()
 
 
 def render_recommended_actions(
@@ -6035,6 +6147,29 @@ if session_result is not None:
             # ====================================
             # RECOMMENDED NEXT ACTIONS
             # ====================================
+
+            follow_up_queue = get_follow_up_queue(
+                intelligence_batch_id
+            )
+
+            if follow_up_queue:
+
+                st.html(
+                    """
+                    <div class="section-title">
+                        Follow-up queue
+                    </div>
+                    """
+                )
+
+                st.caption(
+                    "Active leads that need salesperson attention, ordered by priority and action status."
+                )
+
+                render_follow_up_queue(
+                    follow_up_queue
+                )
+
 
             recommended_actions = (
                 get_recommended_actions(

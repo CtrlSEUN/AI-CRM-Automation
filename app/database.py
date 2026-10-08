@@ -1346,6 +1346,65 @@ def update_lead_action_status(lead_id, action_status):
         conn.close()
 
 
+def get_follow_up_queue(batch_id=None):
+    """Return active lead actions that need follow-up."""
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        query = """
+            SELECT
+                id,
+                name,
+                company,
+                priority,
+                lead_score,
+                recommended_action,
+                follow_up_timing,
+                action_status,
+                action_completed_at,
+                status
+            FROM leads
+            WHERE recommended_action IS NOT NULL
+              AND TRIM(recommended_action) != ''
+              AND UPPER(COALESCE(action_status, 'PENDING'))
+                  NOT IN ('COMPLETED', 'SKIPPED')
+        """
+
+        params = []
+
+        if batch_id is not None:
+            query += """
+                AND import_batch_id = ?
+            """
+            params.append(batch_id)
+
+        query += """
+            ORDER BY
+                CASE UPPER(COALESCE(priority, 'LOW'))
+                    WHEN 'HIGH' THEN 1
+                    WHEN 'MEDIUM' THEN 2
+                    ELSE 3
+                END,
+                CASE UPPER(COALESCE(action_status, 'PENDING'))
+                    WHEN 'PENDING' THEN 1
+                    WHEN 'IN PROGRESS' THEN 2
+                    ELSE 3
+                END,
+                COALESCE(lead_score, 0) DESC,
+                id ASC
+        """
+
+        cursor.execute(query, tuple(params))
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
 def get_leads_by_status(status):
     status = str(status or "").strip().upper()
 
