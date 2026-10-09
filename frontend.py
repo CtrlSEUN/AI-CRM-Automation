@@ -6235,12 +6235,88 @@ if session_result is not None:
                 )
 
                 st.caption(
-                    "Active leads that need salesperson attention, ordered by priority and action status."
+                    "Active leads that need salesperson attention."
                 )
 
-                render_follow_up_queue(
-                    follow_up_queue
+                filter_col1, filter_col2, filter_col3 = (
+                    st.columns([1, 1, 2])
                 )
+
+                with filter_col1:
+                    priority_filter = st.selectbox(
+                        "Priority",
+                        ["All", "High", "Medium", "Low"],
+                        key="follow_up_priority_filter",
+                    )
+
+                with filter_col2:
+                    status_filter = st.selectbox(
+                        "Action status",
+                        ["All", "Pending", "In Progress"],
+                        key="follow_up_status_filter",
+                    )
+
+                with filter_col3:
+                    search_filter = st.text_input(
+                        "Search lead or company",
+                        key="follow_up_search_filter",
+                        placeholder="Enter a name or company",
+                    )
+
+                filtered_queue = []
+
+                for row in follow_up_queue:
+                    (
+                        lead_id,
+                        name,
+                        company,
+                        priority,
+                        lead_score,
+                        recommended_action,
+                        follow_up_timing,
+                        action_status,
+                        action_completed_at,
+                        lead_status,
+                    ) = row
+
+                    if (
+                        priority_filter != "All"
+                        and str(priority or "LOW").upper()
+                        != priority_filter.upper()
+                    ):
+                        continue
+
+                    if (
+                        status_filter != "All"
+                        and str(action_status or "PENDING").upper()
+                        != status_filter.upper()
+                    ):
+                        continue
+
+                    search_text = (
+                        f"{name or ''} {company or ''}"
+                    ).casefold()
+
+                    if (
+                        search_filter.strip()
+                        and search_filter.strip().casefold()
+                        not in search_text
+                    ):
+                        continue
+
+                    filtered_queue.append(row)
+
+                st.caption(
+                    f"Showing {len(filtered_queue)} of "
+                    f"{len(follow_up_queue)} active follow-up leads."
+                )
+
+                if filtered_queue:
+                    render_follow_up_queue(filtered_queue)
+                else:
+                    st.info(
+                        "No follow-up leads match these filters."
+                    )
 
 
             recommended_actions = (
