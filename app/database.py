@@ -1405,6 +1405,91 @@ def get_follow_up_queue(batch_id=None):
         conn.close()
 
 
+
+def get_follow_up_metrics(batch_id=None):
+    """Return batch-scoped follow-up counts and completion rate."""
+
+    if batch_id is not None:
+        if not isinstance(batch_id, int) or batch_id <= 0:
+            raise ValueError("batch_id must be a positive integer.")
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        query = """
+            SELECT
+                UPPER(COALESCE(action_status, 'PENDING')),
+                UPPER(COALESCE(priority, 'LOW')),
+                COUNT(*)
+            FROM leads
+            WHERE recommended_action IS NOT NULL
+              AND TRIM(recommended_action) != ''
+        """
+
+        params = []
+
+        if batch_id is not None:
+            query += " AND import_batch_id = ?"
+            params.append(batch_id)
+
+        query += """
+            GROUP BY
+                UPPER(COALESCE(action_status, 'PENDING')),
+                UPPER(COALESCE(priority, 'LOW'))
+        """
+
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+
+        metrics = {
+            "total": 0,
+            "pending": 0,
+            "in_progress": 0,
+            "completed": 0,
+            "skipped": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "completion_rate": 0.0,
+        }
+
+        for action_status, priority, count in rows:
+            count = int(count or 0)
+            metrics["total"] += count
+
+            if action_status == "PENDING":
+                metrics["pending"] += count
+            elif action_status == "IN PROGRESS":
+                metrics["in_progress"] += count
+            elif action_status == "COMPLETED":
+                metrics["completed"] += count
+            elif action_status == "SKIPPED":
+                metrics["skipped"] += count
+
+            if priority == "HIGH":
+                metrics["high"] += count
+            elif priority == "MEDIUM":
+                metrics["medium"] += count
+            elif priority == "LOW":
+                metrics["low"] += count
+
+        eligible_actions = (
+            metrics["total"] - metrics["skipped"]
+        )
+
+        if eligible_actions:
+            metrics["completion_rate"] = round(
+                metrics["completed"] / eligible_actions * 100,
+                2,
+            )
+
+        return metrics
+
+    finally:
+        conn.close()
+
 def get_leads_by_status(status):
     status = str(status or "").strip().upper()
 

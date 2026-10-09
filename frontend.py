@@ -22,6 +22,7 @@ from app.database import (
     get_lead_action_status,
     update_lead_action_status,
     get_follow_up_queue,
+    get_follow_up_metrics,
 )
 
 from app.lead_analyzer import analyze_lead
@@ -980,6 +981,69 @@ def get_recommended_actions(
 
             except Exception:
                 pass
+
+
+def render_follow_up_metrics(metrics):
+    """Render follow-up workload, priority, and completion metrics."""
+
+    st.html(
+        """
+        <div class="section-title">
+            Follow-up performance
+        </div>
+        """
+    )
+
+    st.caption(
+        "Overview of recommended actions for the selected intelligence batch. "
+        "Skipped actions are excluded from the completion-rate calculation."
+    )
+
+    needs_attention = (
+        metrics["pending"] + metrics["in_progress"]
+    )
+
+    columns = st.columns(4)
+
+    columns[0].metric(
+        "Needs Attention",
+        needs_attention,
+    )
+    columns[1].metric(
+        "Pending",
+        metrics["pending"],
+    )
+    columns[2].metric(
+        "In Progress",
+        metrics["in_progress"],
+    )
+    columns[3].metric(
+        "Completion Rate",
+        f'{metrics["completion_rate"]:.2f}%',
+    )
+
+    columns = st.columns(5)
+
+    columns[0].metric(
+        "Completed",
+        metrics["completed"],
+    )
+    columns[1].metric(
+        "Skipped",
+        metrics["skipped"],
+    )
+    columns[2].metric(
+        "High Priority",
+        metrics["high"],
+    )
+    columns[3].metric(
+        "Medium Priority",
+        metrics["medium"],
+    )
+    columns[4].metric(
+        "Low Priority",
+        metrics["low"],
+    )
 
 
 def render_follow_up_queue(queue):
@@ -6147,6 +6211,14 @@ if session_result is not None:
             # ====================================
             # RECOMMENDED NEXT ACTIONS
             # ====================================
+
+            follow_up_metrics = get_follow_up_metrics(
+                intelligence_batch_id
+            )
+
+            render_follow_up_metrics(
+                follow_up_metrics
+            )
 
             follow_up_queue = get_follow_up_queue(
                 intelligence_batch_id
